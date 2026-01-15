@@ -35,10 +35,13 @@ dirLight.shadow.mapSize.width = 2048;
 dirLight.shadow.mapSize.height = 2048;
 scene.add(dirLight);
 
-// --- 4. ステージ作成 ---
+// --- 4. ステージ & 敵 作成 ---
 const platforms: THREE.Mesh[] = [];
+// 敵を管理する配列
+const enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: number, speed: number, offset: number }[] = [];
 const goalPosition = new THREE.Vector3();
 
+// 足場を作る関数
 function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number, color: number) {
   const geo = new THREE.BoxGeometry(w, h, d);
   const mat = new THREE.MeshStandardMaterial({ color: color });
@@ -50,21 +53,60 @@ function createPlatform(x: number, y: number, z: number, w: number, h: number, d
   platforms.push(mesh);
 }
 
+// 敵を作る関数 (x,y,z: 中心位置, axis: 移動方向, range: 移動幅, speed: 速さ)
+function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
+  // 赤いトゲトゲ（正二十面体）
+  const geo = new THREE.IcosahedronGeometry(0.4, 0); 
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.4, metalness: 0.5 });
+  const mesh = new THREE.Mesh(geo, mat);
+  
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  scene.add(mesh);
+
+  enemies.push({
+    mesh: mesh,
+    basePos: new THREE.Vector3(x, y, z),
+    axis: axis,
+    range: range,
+    speed: speed,
+    offset: Math.random() * Math.PI * 2 //動きをバラバラにする
+  });
+}
+
 function buildStage() {
-  createPlatform(0, 0, 0, 6, 2, 6, 0x66cc66); // Start
-  createPlatform(0, 0, -8, 3, 2, 6, 0xffaa00);
-  createPlatform(0, 0.5, -15, 2, 2, 2, 0xffaa00);
-  createPlatform(3, 1.0, -18, 2, 2, 2, 0xffaa00);
-  createPlatform(0, 1.5, -22, 2, 2, 2, 0xffaa00);
-  createPlatform(0, 2.0, -28, 4, 1, 4, 0x4488ff);
-  createPlatform(0, 3.0, -32, 4, 1, 4, 0x4488ff);
-  createPlatform(0, 4.0, -36, 4, 1, 4, 0x4488ff);
-  createPlatform(0, 4.0, -45, 1.5, 1, 10, 0xff5555); // 細道
-  createPlatform(0, 4.0, -55, 8, 2, 8, 0x66cc66); // Goal
-  goalPosition.set(0, 5.5, -55);
+  // 1. スタートエリア
+  createPlatform(0, 0, 0, 6, 2, 6, 0x66cc66); 
+
+  // 2. 最初の敵（練習用）
+  createPlatform(0, 0, -8, 4, 2, 8, 0xffaa00);
+  createEnemy(0, 1.4, -8, 'x', 1.5, 2); // 左右に動く敵
+
+  // 3. 階段エリア
+  createPlatform(0, 1, -15, 3, 1, 3, 0x4488ff);
+  createPlatform(0, 2, -19, 3, 1, 3, 0x4488ff);
+  
+  // 4. 危険地帯（細い道 + 敵）
+  createPlatform(0, 2, -26, 2, 1, 8, 0xff5555);
+  createEnemy(0, 2.9, -26, 'z', 3, 3); // 前後に動く敵
+
+  // 5. 飛び石
+  createPlatform(-3, 2.5, -32, 2, 1, 2, 0xffaa00);
+  createPlatform(3, 3.0, -35, 2, 1, 2, 0xffaa00);
+  createPlatform(0, 3.5, -39, 2, 1, 2, 0xffaa00);
+
+  // 6. 最終防衛ライン（広い床 + 速い敵2体）
+  createPlatform(0, 3.5, -48, 8, 1, 10, 0x888888);
+  createEnemy(-2, 4.4, -48, 'z', 4, 5); // 左側を高速移動
+  createEnemy(2, 4.4, -48, 'z', 4, 5);  // 右側を高速移動
+
+  // 7. ゴール
+  createPlatform(0, 4.0, -58, 6, 2, 6, 0x66cc66); 
+  goalPosition.set(0, 5.5, -58);
 }
 buildStage();
 
+// ゴールオブジェクト
 const goalGeometry = new THREE.OctahedronGeometry(1, 0);
 const goalMaterial = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 100, emissive: 0xaa6600 });
 const goalObj = new THREE.Mesh(goalGeometry, goalMaterial);
@@ -72,6 +114,7 @@ goalObj.position.copy(goalPosition);
 goalObj.castShadow = true;
 scene.add(goalObj);
 
+// プレイヤー
 const playerGeometry = new THREE.BoxGeometry(0.8, 1, 0.8);
 const playerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, visible: false });
 const player = new THREE.Mesh(playerGeometry, playerMaterial);
@@ -134,14 +177,11 @@ window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') jumpPressed = false;
 });
 
-// ジャンプボタン制御
 const jumpBtn = document.getElementById('jump-btn');
 if (jumpBtn) {
-  // ★重要修正：stopPropagation()を入れることで、
-  // ボタンを押したタッチが「ジョイスティック」や「画面」に伝わるのを防ぎます
   jumpBtn.addEventListener('touchstart', (e) => {
     e.preventDefault(); 
-    e.stopPropagation(); // ◀ これが「勝手に右に動く」を防ぐ鍵です
+    e.stopPropagation(); 
     jumpPressed = true;
   }, { passive: false });
 
@@ -155,12 +195,10 @@ if (jumpBtn) {
   jumpBtn.addEventListener('mouseup', () => jumpPressed = false);
 }
 
-// ジョイスティック設定（固定モード）
 const joystickManager = nipplejs.create({
-  // ★修正：左半分のエリアに限定して生成
   zone: document.getElementById('joystick-zone') as HTMLElement,
   mode: 'static',
-  position: { left: '50%', top: '80%' }, // 左エリアの中での位置（中央下あたり）
+  position: { left: '50%', top: '80%' }, 
   color: 'white',
   size: 100
 });
@@ -228,14 +266,45 @@ function gameClear() {
 }
 
 function gameOver() {
-  resetGame();
+  // ゲームオーバー演出（あればDeathアニメ再生など）
+  if (model) fadeToAction('Death', 0.1); 
+  // 少し待ってからリセット
+  setTimeout(() => {
+    resetGame();
+  }, 100);
 }
 
-function updatePlayer() {
+// 敵の更新と衝突判定
+function updateEnemies(time: number) {
+  for (const enemy of enemies) {
+    // 1. 移動 (Sine波を使って往復させる)
+    const move = Math.sin(time * enemy.speed + enemy.offset) * enemy.range;
+    if (enemy.axis === 'x') {
+      enemy.mesh.position.x = enemy.basePos.x + move;
+    } else {
+      enemy.mesh.position.z = enemy.basePos.z + move;
+    }
+    
+    // 回転（演出）
+    enemy.mesh.rotation.x += 0.05;
+    enemy.mesh.rotation.y += 0.05;
+
+    // 2. プレイヤーとの衝突判定
+    // 距離が近すぎたらアウト (当たり判定の半径の合計くらい)
+    const dist = player.position.distanceTo(enemy.mesh.position);
+    if (dist < 0.8) { // プレイヤー半径0.4 + 敵半径0.4
+      gameOver();
+    }
+  }
+}
+
+function updatePlayer(time: number) {
   if (!isGameActive) return;
 
   goalObj.rotation.y += 0.02;
   goalObj.rotation.x += 0.01;
+
+  updateEnemies(time); // 敵を動かす
 
   let moveX = 0;
   let moveZ = 0;
@@ -309,8 +378,10 @@ function updatePlayer() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  const time = clock.getElapsedTime(); // 経過時間（敵の動きに使用）
+
   if (mixer) mixer.update(delta);
-  updatePlayer();
+  updatePlayer(time);
 
   const cameraOffset = new THREE.Vector3(0, 5, 8);
   const targetPos = player.position.clone().add(cameraOffset);
