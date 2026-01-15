@@ -5,7 +5,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // --- ゲーム状態 ---
 let currentLevel = 1;
-let isGameActive = false;
+let isGameActive = false; // 操作可能か
+let isCinematic = false;  // ムービー中か（UI隠す用）
 let coinCount = 0;
 let isSpinning = false; 
 
@@ -13,6 +14,12 @@ let isSpinning = false;
 let shakeIntensity = 0; 
 let hitStopTimer = 0;   
 let runDustTimer = 0;   
+
+// ★シネマティック用
+let cutsceneTimer = 0;
+let currentCutscene = '';
+let cameraOverridePos = new THREE.Vector3(); // ムービー中のカメラ位置
+let cameraLookAtPos = new THREE.Vector3();   // ムービー中の注視点
 
 // --- 1. シーン初期化 ---
 const scene = new THREE.Scene();
@@ -52,13 +59,8 @@ const stoneTexture = textureLoader.load('https://threejs.org/examples/textures/u
 stoneTexture.wrapS = THREE.RepeatWrapping;
 stoneTexture.wrapT = THREE.RepeatWrapping;
 
-// --- パーティクルシステム ---
-interface Particle {
-  mesh: THREE.Mesh;
-  velocity: THREE.Vector3;
-  life: number;
-  maxLife: number;
-}
+// --- パーティクル ---
+interface Particle { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; maxLife: number; }
 let particles: Particle[] = [];
 const particleGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
 const particleMatCoin = new THREE.MeshBasicMaterial({ color: 0xffff00 });
@@ -67,28 +69,16 @@ const particleMatDust = new THREE.MeshBasicMaterial({ color: 0xdddddd, transpare
 const particleMatShockwave = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
 
 function spawnParticles(pos: THREE.Vector3, count: number, type: 'coin'|'explosion'|'dust'|'shockwave') {
-  let mat = particleMatCoin;
-  let speed = 0.1;
-  let life = 0.5;
+  let mat = particleMatCoin; let speed = 0.1; let life = 0.5;
+  if (type==='explosion'){ mat=particleMatExplosion; speed=0.3; life=0.8; }
+  else if (type==='dust'){ mat=particleMatDust; speed=0.05; life=0.4; }
+  else if (type==='shockwave'){ mat=particleMatShockwave; speed=0.4; life=0.5; }
 
-  if (type === 'explosion') { mat = particleMatExplosion; speed = 0.3; life = 0.8; }
-  else if (type === 'dust') { mat = particleMatDust; speed = 0.05; life = 0.4; }
-  else if (type === 'shockwave') { mat = particleMatShockwave; speed = 0.4; life = 0.5; }
-
-  for (let i = 0; i < count; i++) {
+  for (let i=0; i<count; i++) {
     const mesh = new THREE.Mesh(particleGeo, mat.clone());
     mesh.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5));
-    const velocity = new THREE.Vector3(
-      (Math.random()-0.5)*speed,
-      (Math.random()-0.5)*speed + (type==='dust'?0.05:0.2), 
-      (Math.random()-0.5)*speed
-    );
-    if (type === 'shockwave') {
-      // 地面を這う衝撃波
-      velocity.y = 0;
-      velocity.x *= 2;
-      velocity.z *= 2;
-    }
+    const velocity = new THREE.Vector3((Math.random()-0.5)*speed, (Math.random()-0.5)*speed+(type==='dust'?0.05:0.2), (Math.random()-0.5)*speed);
+    if (type==='shockwave') { velocity.y=0; velocity.x*=2; velocity.z*=2; }
     scene.add(mesh);
     particles.push({ mesh, velocity, life, maxLife: life });
   }
@@ -97,31 +87,13 @@ function spawnParticles(pos: THREE.Vector3, count: number, type: 'coin'|'explosi
 function addShake(amount: number) { shakeIntensity = amount; }
 function vibrate(ms: number) { if (navigator.vibrate) navigator.vibrate(ms); }
 
-// --- オブジェクト管理 ---
-interface MovingPlatform {
-  mesh: THREE.Mesh;
-  basePos: THREE.Vector3;
-  axis: 'x' | 'y' | 'z';
-  range: number;
-  speed: number;
-  offset: number;
-}
+// --- オブジェクト ---
+interface MovingPlatform { mesh: THREE.Mesh; basePos: THREE.Vector3; axis: 'x'|'y'|'z'; range: number; speed: number; offset: number; }
 interface Enemy {
-  mesh: THREE.Group; 
-  mixer: THREE.AnimationMixer; 
-  type: 'patrol' | 'chaser' | 'boss'; 
-  speed: number;
-  dead: boolean;
-  deadTimer: number; 
-  velocityY: number;
-  patrolAxis?: 'x' | 'z'; 
-  patrolDir?: number;
-  basePos: THREE.Vector3;
-  // ★ボス用
-  hp?: number;
-  maxHp?: number;
-  bossState?: 'chase' | 'prepare' | 'attack' | 'stun';
-  stateTimer?: number;
+  mesh: THREE.Group; mixer: THREE.AnimationMixer; type: 'patrol'|'chaser'|'boss';
+  speed: number; dead: boolean; deadTimer: number; velocityY: number;
+  patrolAxis?: 'x'|'z'; patrolDir?: number; basePos: THREE.Vector3;
+  hp?: number; maxHp?: number; bossState?: string; stateTimer?: number;
 }
 
 let movingPlatforms: MovingPlatform[] = [];
@@ -130,118 +102,155 @@ let enemies: Enemy[] = [];
 let coins: THREE.Mesh[] = [];
 let goalObj: THREE.Mesh | undefined;
 let goalPosition = new THREE.Vector3();
-
 let enemyResource: any = null;
 
-// --- 作成関数 ---
 function clearStage() {
-  staticPlatforms.forEach(p => scene.remove(p));
-  movingPlatforms.forEach(p => scene.remove(p.mesh));
-  enemies.forEach(e => scene.remove(e.mesh));
-  coins.forEach(c => scene.remove(c));
-  particles.forEach(p => scene.remove(p.mesh));
+  staticPlatforms.forEach(p=>scene.remove(p)); movingPlatforms.forEach(p=>scene.remove(p.mesh));
+  enemies.forEach(e=>scene.remove(e.mesh)); coins.forEach(c=>scene.remove(c)); particles.forEach(p=>scene.remove(p.mesh));
   if (goalObj) scene.remove(goalObj);
-  
-  staticPlatforms = [];
-  movingPlatforms = [];
-  enemies = [];
-  coins = [];
-  particles = [];
-  
-  // ボスUI隠す
+  staticPlatforms=[]; movingPlatforms=[]; enemies=[]; coins=[]; particles=[];
   document.getElementById('boss-hud')!.style.display = 'none';
 }
 
-function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number, type: 'wood'|'stone' = 'wood') {
-  const geo = new THREE.BoxGeometry(w, h, d);
-  let mat;
-  if (type === 'wood') mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
-  else mat = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.5, color: 0x888888 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y - h / 2, z); 
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  staticPlatforms.push(mesh);
+function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number, type: 'wood'|'stone'='wood') {
+  const geo=new THREE.BoxGeometry(w,h,d);
+  let mat = type==='wood' ? new THREE.MeshStandardMaterial({map:crateTexture, roughness:0.8}) : new THREE.MeshStandardMaterial({map:stoneTexture, roughness:0.5, color:0x888888});
+  const mesh=new THREE.Mesh(geo,mat); mesh.position.set(x,y-h/2,z); mesh.castShadow=true; mesh.receiveShadow=true;
+  scene.add(mesh); staticPlatforms.push(mesh);
+}
+function createMovingPlatform(x:number,y:number,z:number,w:number,h:number,d:number,axis:'x'|'y'|'z',range:number,speed:number) {
+  const geo=new THREE.BoxGeometry(w,h,d); const mat=new THREE.MeshStandardMaterial({map:crateTexture, color:0xffffaa, roughness:0.8});
+  const mesh=new THREE.Mesh(geo,mat); mesh.position.set(x,y-h/2,z); mesh.castShadow=true; mesh.receiveShadow=true;
+  scene.add(mesh); movingPlatforms.push({mesh, basePos:new THREE.Vector3(x,y-h/2,z), axis, range, speed, offset:0});
 }
 
-function createMovingPlatform(x: number, y: number, z: number, w: number, h: number, d: number, axis: 'x'|'y'|'z', range: number, speed: number) {
-  const geo = new THREE.BoxGeometry(w, h, d);
-  const mat = new THREE.MeshStandardMaterial({ map: crateTexture, color: 0xffffaa, roughness: 0.8 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y - h / 2, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  movingPlatforms.push({ mesh, basePos: new THREE.Vector3(x, y - h/2, z), axis, range, speed, offset: 0 });
-}
-
-function spawnEnemy(x: number, y: number, z: number, type: 'patrol'|'chaser'|'boss', axis: 'x'|'z'|undefined, speed: number) {
-  if (!enemyResource) return;
-  const enemyMesh = enemyResource.scene.clone();
-  enemyMesh.position.set(x, y, z);
+function spawnEnemy(x:number,y:number,z:number,type:'patrol'|'chaser'|'boss',axis:'x'|'z'|undefined,speed:number) {
+  if(!enemyResource)return;
+  const mesh=enemyResource.scene.clone(); mesh.position.set(x,y,z);
+  if(type==='boss') mesh.scale.set(1.2,1.2,1.2); else mesh.scale.set(0.4,0.4,0.4);
+  mesh.traverse((c:any)=>{if(c.isMesh)c.castShadow=true;}); scene.add(mesh);
+  const mixer=new THREE.AnimationMixer(mesh);
+  const clip=THREE.AnimationClip.findByName(enemyResource.animations, type==='chaser'?'Running':'Walking');
+  if(clip) mixer.clipAction(clip).play();
   
-  // サイズと影
-  if (type === 'boss') {
-    enemyMesh.scale.set(1.2, 1.2, 1.2); // 3倍 (元の0.4 * 3 = 1.2)
-  } else {
-    enemyMesh.scale.set(0.4, 0.4, 0.4); 
-  }
-  
-  enemyMesh.traverse((child: any) => { if (child.isMesh) child.castShadow = true; });
-  scene.add(enemyMesh);
-
-  const mixer = new THREE.AnimationMixer(enemyMesh);
-  let actionName = 'Walking';
-  if (type === 'chaser') actionName = 'Running';
-  if (type === 'boss') actionName = 'Walking'; // ボスは歩いて迫る
-
-  const clip = THREE.AnimationClip.findByName(enemyResource.animations, actionName);
-  if (clip) mixer.clipAction(clip).play();
-
-  enemies.push({ 
-    mesh: enemyMesh, mixer: mixer, type: type, speed: speed, 
-    dead: false, deadTimer: 0, velocityY: 0, 
-    patrolAxis: axis, patrolDir: 1, basePos: new THREE.Vector3(x, y, z),
-    // ボス初期化
-    hp: 3, maxHp: 3, bossState: 'chase', stateTimer: 0
+  enemies.push({
+    mesh, mixer, type, speed, dead:false, deadTimer:0, velocityY:0, patrolAxis:axis, patrolDir:1, basePos:new THREE.Vector3(x,y,z),
+    hp:3, maxHp:3, bossState:'wait', stateTimer:0 // Bossは最初待機
   });
+  if(type==='boss') {
+    updateBossUI(3,3); 
+    // ボスUIはムービー後に表示する
+  }
+}
+function createPatrolEnemy(x:number,y:number,z:number,axis:'x'|'z',speed:number){spawnEnemy(x,y,z,'patrol',axis,speed);}
+function createChaserEnemy(x:number,y:number,z:number,speed:number){spawnEnemy(x,y,z,'chaser',undefined,speed);}
+function createBoss(x:number,y:number,z:number){spawnEnemy(x,y,z,'boss',undefined,1.5);}
 
-  if (type === 'boss') {
-    updateBossUI(3, 3);
-    document.getElementById('boss-hud')!.style.display = 'block';
+function createCoin(x:number,y:number,z:number){
+  const geo=new THREE.CylinderGeometry(0.3,0.3,0.05,16); const mat=new THREE.MeshPhongMaterial({color:0xffd700,shininess:100,emissive:0xaa8800});
+  const mesh=new THREE.Mesh(geo,mat); mesh.position.set(x,y,z); mesh.rotation.z=Math.PI/2; mesh.castShadow=true;
+  scene.add(mesh); coins.push(mesh);
+}
+function createGoal(x:number,y:number,z:number){
+  const geo=new THREE.OctahedronGeometry(1,0); const mat=new THREE.MeshPhongMaterial({color:0x00ffff,shininess:100,emissive:0x0044aa});
+  goalObj=new THREE.Mesh(geo,mat); goalObj.position.set(x,y,z); goalObj.castShadow=true; scene.add(goalObj); goalPosition.set(x,y,z);
+}
+function updateBossUI(hp:number,max:number){
+  const fill=document.getElementById('boss-hp-fill'); if(fill)fill.style.width=`${(hp/max)*100}%`;
+}
+
+// --- シネマティック演出制御 ---
+function startCutscene(id: string) {
+  isCinematic = true;
+  isGameActive = false;
+  currentCutscene = id;
+  cutsceneTimer = 0;
+  
+  // 黒帯を表示
+  document.getElementById('ui-layer')!.classList.add('cinematic-active');
+  
+  // IDごとの初期設定
+  if (id === 'intro') {
+    // 空の上から
+    cameraOverridePos.set(0, 20, 20);
+    cameraLookAtPos.set(0, 0, 0);
+    showSubtitle("MISSION START");
+  } else if (id === 'boss_spawn') {
+    // ボスエリアへ
+    cameraOverridePos.set(0, 10, 0); // ボスエリア手前
+    cameraLookAtPos.set(0, 0, -15);  // ボス出現位置
+    
+    // ボスを空に配置（降ってくる演出用）
+    const boss = enemies.find(e => e.type === 'boss');
+    if (boss) {
+      boss.mesh.position.y = 20; // 上空
+      boss.bossState = 'falling';
+    }
+    showSubtitle("WARNING: GIANT ENEMY DETECTED");
   }
 }
 
-function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) { spawnEnemy(x, y, z, 'patrol', axis, speed); }
-function createChaserEnemy(x: number, y: number, z: number, speed: number) { spawnEnemy(x, y, z, 'chaser', undefined, speed); }
-function createBoss(x: number, y: number, z: number) { spawnEnemy(x, y, z, 'boss', undefined, 1.5); }
+function updateCutscene(delta: number) {
+  cutsceneTimer += delta;
+  
+  if (currentCutscene === 'intro') {
+    // カメラがプレイヤーに寄っていく
+    const targetPos = player.position.clone().add(new THREE.Vector3(0, 5, 8)); // 通常カメラ位置
+    cameraOverridePos.lerp(targetPos, 0.05);
+    cameraLookAtPos.lerp(player.position, 0.05);
+    
+    if (cutsceneTimer > 3.0) {
+      endCutscene();
+      showStory(levelStartText); // ステージ説明
+    }
+  } else if (currentCutscene === 'boss_spawn') {
+    const boss = enemies.find(e => e.type === 'boss');
+    if (boss) {
+      // ボス落下
+      if (boss.bossState === 'falling') {
+        boss.mesh.position.y -= 10 * delta; // 落下
+        if (boss.mesh.position.y <= 1.5) {
+          boss.mesh.position.y = 1.5;
+          boss.bossState = 'landed';
+          // 着地エフェクト
+          spawnParticles(boss.mesh.position, 30, 'shockwave');
+          addShake(2.0);
+          vibrate(500);
+        }
+      } else if (boss.bossState === 'landed') {
+        // 咆哮（ズーム）
+        const bossHead = boss.mesh.position.clone().add(new THREE.Vector3(0, 2, 0));
+        cameraLookAtPos.lerp(bossHead, 0.1);
+        cameraOverridePos.lerp(boss.mesh.position.clone().add(new THREE.Vector3(0, 3, 8)), 0.05);
+      }
+    }
 
-function createCoin(x: number, y: number, z: number) {
-  const geo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
-  const mat = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 100, emissive: 0xaa8800 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, z);
-  mesh.rotation.z = Math.PI / 2; 
-  mesh.castShadow = true;
-  scene.add(mesh);
-  coins.push(mesh);
+    if (cutsceneTimer > 4.0) {
+      endCutscene();
+      // ボス戦開始
+      if (boss) boss.bossState = 'chase';
+      document.getElementById('boss-hud')!.style.display = 'block';
+    }
+  }
 }
 
-function createGoal(x: number, y: number, z: number) {
-  const geo = new THREE.OctahedronGeometry(1, 0);
-  const mat = new THREE.MeshPhongMaterial({ color: 0x00ffff, shininess: 100, emissive: 0x0044aa });
-  goalObj = new THREE.Mesh(geo, mat);
-  goalObj.position.set(x, y, z);
-  goalObj.castShadow = true;
-  scene.add(goalObj);
-  goalPosition.set(x, y, z);
+function endCutscene() {
+  isCinematic = false;
+  isGameActive = true;
+  document.getElementById('ui-layer')!.classList.remove('cinematic-active');
+  hideSubtitle();
 }
 
-function updateBossUI(hp: number, max: number) {
-  const fill = document.getElementById('boss-hp-fill');
-  if (fill) fill.style.width = `${(hp / max) * 100}%`;
+function showSubtitle(text: string) {
+  const el = document.getElementById('cinema-subtitle')!;
+  el.innerText = text;
+  el.style.opacity = '1';
 }
+function hideSubtitle() {
+  document.getElementById('cinema-subtitle')!.style.opacity = '0';
+}
+
+let levelStartText = ""; // ストーリー保存用
 
 // --- ステージデータ ---
 function loadLevel(level: number) {
@@ -253,7 +262,7 @@ function loadLevel(level: number) {
   if (!enemyResource) { setTimeout(() => loadLevel(level), 500); return; }
 
   if (level === 1) {
-    showStory("【WORLD 1: はじまりの広場】<br>まずは基本のおさらいだ。<br>スピンで敵を倒して進め！");
+    levelStartText = "【WORLD 1】<br>作戦開始。<br>敵ロボットを排除せよ！";
     createPlatform(0, 0, 0, 10, 2, 10, 'stone');
     createPlatform(0, 0, -15, 8, 2, 8, 'wood');
     createChaserEnemy(0, 1.5, -15, 2.0); 
@@ -266,36 +275,37 @@ function loadLevel(level: number) {
     createMovingPlatform(0, 2, -25, 4, 0.5, 4, 'z', 3, 1.5);
     createPlatform(0, 3, -35, 8, 2, 8, 'stone');
     createGoal(0, 4.5, -35);
+    
+    startCutscene('intro'); // ★開始ムービー
   
   } else if (level === 2) {
-    showStory("【WORLD 2: スカイ・アスレチック】<br>落ちたら即死の危険地帯。<br>慎重に進め！");
+    levelStartText = "【WORLD 2】<br>空中要塞へ侵入する。<br>落ちないように注意せよ。";
     createPlatform(0, 0, 0, 6, 2, 6, 'stone');
     createPlatform(8, 1, -8, 5, 1, 5, 'wood');
     createChaserEnemy(8, 1.5, -8, 3.5); createCoin(8, 2.5, -8);
     createPlatform(-8, 1, -8, 5, 1, 5, 'wood');
     createPatrolEnemy(-8, 1.9, -8, 'x', 2.0); createCoin(-8, 2.5, -8);
     createPlatform(0, 2, -16, 10, 1, 6, 'stone');
-    createChaserEnemy(-3, 2.5, -16, 2.0);
-    createChaserEnemy(3, 2.5, -16, 2.0); 
+    createChaserEnemy(-3, 2.5, -16, 2.0); createChaserEnemy(3, 2.5, -16, 2.0); 
     createMovingPlatform(0, 2, -24, 3, 0.5, 3, 'y', 3, 1); 
     createPlatform(0, 6, -32, 12, 2, 12, 'stone'); 
-    createPatrolEnemy(0, 7.4, -32, 'x', 3.0);
-    createPatrolEnemy(0, 7.4, -32, 'z', 3.0); 
+    createPatrolEnemy(0, 7.4, -32, 'x', 3.0); createPatrolEnemy(0, 7.4, -32, 'z', 3.0); 
     createCoin(0, 8, -32); createCoin(4, 8, -32); createCoin(-4, 8, -32);
     createGoal(0, 7.5, -40); 
+    
+    startCutscene('intro');
   
   } else if (level === 3) {
-    showStory("【FINAL BOSS: 巨大ロボット】<br>ボスが現れた！<br>ジャンプ衝撃波を避けて、隙を見て攻撃だ！");
+    levelStartText = ""; // ボス戦はムービー後にHUDが出るのでテキストなしでもOK
     createPlatform(0, 0, 0, 10, 2, 10, 'stone');
-    createPlatform(0, 0, -15, 20, 2, 20, 'stone'); // ボスエリア
+    createPlatform(0, 0, -15, 20, 2, 20, 'stone');
     createBoss(0, 1.5, -15);
-    createGoal(0, 1.5, -30); // ボス裏にゴール
+    createGoal(0, 1.5, -30);
+    createCoin(-5, 1.5, -15); createCoin(5, 1.5, -15);
     
-    // 回復コイン
-    createCoin(-5, 1.5, -15);
-    createCoin(5, 1.5, -15);
+    startCutscene('boss_spawn'); // ★ボス登場ムービー
   } else {
-    showStory(`【ALL CLEAR】<br>世界は救われた！<br>獲得コイン: ${coinCount}枚`);
+    showStory(`【ALL CLEAR】<br>作戦コンプリート！<br>獲得コイン: ${coinCount}枚`);
     isGameActive = false;
     goalObj = undefined;
   }
@@ -350,7 +360,6 @@ function playEnemyAction(enemy: Enemy, actionName: string, duration: number = 0.
   if (clip) {
     const action = enemy.mixer.clipAction(clip);
     action.reset().fadeIn(duration).play();
-    // 他のアクションを止める簡易処理は省略（重ねがけ許容）
   }
 }
 
@@ -389,11 +398,10 @@ window.addEventListener('keyup', (e) => {
 });
 
 function attack(pressed: boolean) {
-  if (pressed && !isSpinning) {
+  if (pressed && !isSpinning && isGameActive && !isCinematic) {
     isSpinning = true;
     spinEffectMat.opacity = 0.6;
-    addShake(0.2); 
-    vibrate(30);   
+    addShake(0.2); vibrate(30);   
     setTimeout(() => { isSpinning = false; spinEffectMat.opacity = 0.0; }, 500);
   }
 }
@@ -443,6 +451,15 @@ let velocityY = 0;
 let isGrounded = true;
 
 function update(time: number, delta: number) {
+  // ★ムービー中は専用更新
+  if (isCinematic) {
+    updateCutscene(delta);
+    // カメラ移動
+    camera.position.copy(cameraOverridePos);
+    camera.lookAt(cameraLookAtPos);
+    return; // ゲームロジックは止める
+  }
+
   if (!isGameActive) return;
   if (hitStopTimer > 0) { hitStopTimer -= delta; return; }
 
@@ -485,7 +502,6 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
-  // --- 敵の処理（ボスロジック含む） ---
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
     if (enemy.mixer) enemy.mixer.update(delta);
@@ -498,15 +514,10 @@ function update(time: number, delta: number) {
       continue;
     }
 
-    // 地面判定
     let enemyGrounded = false;
     let groundY = -999;
-    for (const p of staticPlatforms) {
-      if (checkOnPlatform(enemy.mesh, p)) { const top = p.position.y + p.geometry.parameters.height/2; if (top > groundY) groundY = top; }
-    }
-    for (const mp of movingPlatforms) {
-      if (checkOnPlatform(enemy.mesh, mp.mesh)) { const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2; if (top > groundY) groundY = top; }
-    }
+    for (const p of staticPlatforms) { if (checkOnPlatform(enemy.mesh, p)) { const top = p.position.y + p.geometry.parameters.height/2; if (top > groundY) groundY = top; } }
+    for (const mp of movingPlatforms) { if (checkOnPlatform(enemy.mesh, mp.mesh)) { const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2; if (top > groundY) groundY = top; } }
 
     if (enemy.mesh.position.y <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
       enemy.mesh.position.y = groundY; enemy.velocityY = 0; enemyGrounded = true;
@@ -514,7 +525,6 @@ function update(time: number, delta: number) {
       enemyGrounded = false; enemy.velocityY -= gravity * timeScale; enemy.mesh.position.y += enemy.velocityY * timeScale;
     }
 
-    // AI
     if (enemyGrounded) {
       if (enemy.type === 'patrol') {
         const moveDist = enemy.speed * 0.03 * timeScale;
@@ -538,109 +548,64 @@ function update(time: number, delta: number) {
         }
 
       } else if (enemy.type === 'boss') {
-        // ★ボスAI
         if (!enemy.stateTimer) enemy.stateTimer = 0;
         enemy.stateTimer += delta;
         const dist = player.position.distanceTo(enemy.mesh.position);
 
         if (enemy.bossState === 'chase') {
-          // ゆっくり近づく
           if (dist > 3) {
             const direction = new THREE.Vector3().subVectors(player.position, enemy.mesh.position).normalize();
             direction.y = 0; direction.normalize();
-            enemy.mesh.position.add(direction.multiplyScalar(enemy.speed * 0.02 * timeScale)); // 遅め
+            enemy.mesh.position.add(direction.multiplyScalar(enemy.speed * 0.02 * timeScale));
             enemy.mesh.lookAt(new THREE.Vector3(player.position.x, enemy.mesh.position.y, player.position.z));
-            // 歩行アニメ
-            // playEnemyAction(enemy, 'Walking'); // 常に再生されてるのでOK
           }
-          if (enemy.stateTimer > 4) { // 4秒ごとに攻撃準備
-            enemy.bossState = 'prepare';
-            enemy.stateTimer = 0;
-            // ジャンプモーション
-            playEnemyAction(enemy, 'Jump', 0.1);
-            enemy.velocityY = 0.6; // ジャンプ
-            enemyGrounded = false;
+          if (enemy.stateTimer > 4) {
+            enemy.bossState = 'prepare'; enemy.stateTimer = 0;
+            playEnemyAction(enemy, 'Jump', 0.1); enemy.velocityY = 0.6; enemyGrounded = false;
           }
-
         } else if (enemy.bossState === 'prepare') {
-          // 空中
           if (enemyGrounded && enemy.stateTimer > 0.5) {
-             // 着地！攻撃！
-             enemy.bossState = 'attack';
-             enemy.stateTimer = 0;
-             spawnParticles(enemy.mesh.position, 20, 'shockwave');
-             addShake(1.0);
-             vibrate(200);
-
-             // プレイヤーが接地してたらダメージ
-             if (isGrounded) {
-               gameOver();
-             }
+             enemy.bossState = 'attack'; enemy.stateTimer = 0;
+             spawnParticles(enemy.mesh.position, 20, 'shockwave'); addShake(1.0); vibrate(200);
+             if (isGrounded) gameOver();
           }
         } else if (enemy.bossState === 'attack') {
-          // 攻撃後の隙
           if (enemy.stateTimer > 1.0) {
-            enemy.bossState = 'stun'; // 疲れる
-            enemy.stateTimer = 0;
-            playEnemyAction(enemy, 'Idle', 0.2); // 棒立ち
+            enemy.bossState = 'stun'; enemy.stateTimer = 0; playEnemyAction(enemy, 'Idle', 0.2);
           }
         } else if (enemy.bossState === 'stun') {
-          // 攻撃チャンス
           if (enemy.stateTimer > 3.0) {
-            enemy.bossState = 'chase';
-            enemy.stateTimer = 0;
-            playEnemyAction(enemy, 'Walking', 0.2);
+            enemy.bossState = 'chase'; enemy.stateTimer = 0; playEnemyAction(enemy, 'Walking', 0.2);
           }
         }
       }
     }
 
-    // 衝突判定
     const dx = player.position.x - enemy.mesh.position.x;
     const dz = player.position.z - enemy.mesh.position.z;
     const hDist = Math.sqrt(dx*dx + dz*dz);
     const vDist = Math.abs(player.position.y - enemy.mesh.position.y);
-    
-    // ボスの当たり判定はデカい
     const hitRadius = enemy.type === 'boss' ? 2.5 : 1.0;
 
     if (hDist < hitRadius && vDist < 2.5) {
       if (isSpinning) {
         if (enemy.type === 'boss') {
           if (enemy.bossState === 'stun') {
-            // ボスにダメージ
-            if (!enemy.dead) { // 無敵時間代わりにdeadフラグを一瞬使う手もあるが、今回はヒットストップでごまかす
-               enemy.hp = (enemy.hp || 0) - 1;
-               updateBossUI(enemy.hp, enemy.maxHp || 3);
+            if (!enemy.dead) {
+               enemy.hp = (enemy.hp || 0) - 1; updateBossUI(enemy.hp, enemy.maxHp || 3);
                spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,2,0)), 15, 'explosion');
-               addShake(0.5); hitStopTimer = 0.2;
-               // 吹き飛びアニメ（No）
-               playEnemyAction(enemy, 'No', 0.1);
-               // 即座に復帰
-               enemy.bossState = 'chase'; enemy.stateTimer = -2; // 少し無敵
-
-               if (enemy.hp <= 0) {
-                 enemy.dead = true;
-               }
+               addShake(0.5); hitStopTimer = 0.2; playEnemyAction(enemy, 'No', 0.1);
+               enemy.bossState = 'chase'; enemy.stateTimer = -2;
+               if (enemy.hp <= 0) enemy.dead = true;
             }
           }
         } else {
-          // 雑魚は即死
-          enemy.dead = true;
-          spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 15, 'explosion');
+          enemy.dead = true; spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 15, 'explosion');
           addShake(0.5); vibrate(100); hitStopTimer = 0.1;
         }
       } else {
-        // プレイヤーがダメージ
-        if (enemy.type === 'boss') {
-          // ボスに触れるだけで死ぬのは理不尽なので、attack中のみ判定...したいが、今回は接触=死とする
-          // ただしstun中は安全
-          if (enemy.bossState !== 'stun') {
-             addShake(0.8); vibrate(500); gameOver();
-          }
-        } else {
-          addShake(0.8); vibrate(500); gameOver();
-        }
+        if (enemy.type === 'boss') { if (enemy.bossState !== 'stun') { addShake(0.8); vibrate(500); gameOver(); } }
+        else { addShake(0.8); vibrate(500); gameOver(); }
       }
     }
   }
@@ -689,6 +654,7 @@ function update(time: number, delta: number) {
     model.position.copy(player.position); model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
     model.quaternion.slerp(q, 0.2 * timeScale); 
+    
     const shakeX = (Math.random()-0.5) * shakeIntensity;
     const shakeY = (Math.random()-0.5) * shakeIntensity;
     const camOffset = new THREE.Vector3(0, 5, 8);
@@ -696,6 +662,7 @@ function update(time: number, delta: number) {
     camera.position.lerp(target, 0.1);
     camera.position.x += shakeX; camera.position.y += shakeY;
     camera.lookAt(player.position);
+
     if (isSpinning) model.rotation.y += 20 * delta;
     if (isGrounded) { if (isMoving) { fadeToAction('Run', 0.2); if (activeAction) activeAction.setEffectiveTimeScale(0.7); } else fadeToAction('Idle', 0.2); } else fadeToAction('Jump', 0.1);
   }
