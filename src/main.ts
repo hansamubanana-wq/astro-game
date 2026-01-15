@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 let currentLevel = 1;
 let isGameActive = false;
 let coinCount = 0;
-let isSpinning = false; // 攻撃中フラグ
+let isSpinning = false; 
 
 // --- 1. シーン初期化 ---
 const scene = new THREE.Scene();
@@ -46,7 +46,6 @@ const crateTexture = textureLoader.load('https://threejs.org/examples/textures/c
 crateTexture.colorSpace = THREE.SRGBColorSpace;
 
 // --- オブジェクト管理 ---
-// 動く床の定義
 interface MovingPlatform {
   mesh: THREE.Mesh;
   basePos: THREE.Vector3;
@@ -56,7 +55,7 @@ interface MovingPlatform {
   offset: number;
 }
 let movingPlatforms: MovingPlatform[] = [];
-let staticPlatforms: THREE.Mesh[] = []; // 動かない床
+let staticPlatforms: THREE.Mesh[] = [];
 let enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: number, speed: number, offset: number, dead: boolean }[] = [];
 let coins: THREE.Mesh[] = [];
 let goalObj: THREE.Mesh | undefined;
@@ -76,7 +75,6 @@ function clearStage() {
   coins = [];
 }
 
-// 静止床作成
 function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number) {
   const geo = new THREE.BoxGeometry(w, h, d);
   const mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
@@ -88,7 +86,6 @@ function createPlatform(x: number, y: number, z: number, w: number, h: number, d
   staticPlatforms.push(mesh);
 }
 
-// 動く床作成
 function createMovingPlatform(x: number, y: number, z: number, w: number, h: number, d: number, axis: 'x'|'y'|'z', range: number, speed: number) {
   const geo = new THREE.BoxGeometry(w, h, d);
   const mat = new THREE.MeshStandardMaterial({ map: crateTexture, color: 0xffffaa, roughness: 0.8 });
@@ -104,7 +101,6 @@ function createMovingPlatform(x: number, y: number, z: number, w: number, h: num
   });
 }
 
-// 敵作成
 function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
   const geo = new THREE.IcosahedronGeometry(0.4, 0); 
   const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0x330000 });
@@ -115,13 +111,12 @@ function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: numb
   enemies.push({ mesh, basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6, dead: false });
 }
 
-// コイン作成
 function createCoin(x: number, y: number, z: number) {
   const geo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
   const mat = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 100, emissive: 0xaa8800 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
-  mesh.rotation.z = Math.PI / 2; // 立てる
+  mesh.rotation.z = Math.PI / 2; 
   mesh.castShadow = true;
   scene.add(mesh);
   coins.push(mesh);
@@ -147,60 +142,43 @@ function loadLevel(level: number) {
   if (level === 1) {
     showStory("【STAGE 1: 訓練場】<br>攻撃ボタンでスピンアタックだ！<br>敵をぶっ飛ばしてコインを集めろ！");
     createPlatform(0, 0, 0, 6, 2, 6);
-    
-    // 動く床の練習
     createMovingPlatform(0, 0, -10, 4, 1, 4, 'z', 3, 1.5);
     createCoin(0, 1.5, -10);
-
     createPlatform(0, 0, -20, 6, 2, 6);
-    createEnemy(0, 1.4, -20, 'x', 2, 2); // 倒せる敵
-
+    createEnemy(0, 1.4, -20, 'x', 2, 2); 
     createMovingPlatform(6, 1, -25, 3, 1, 3, 'x', 2, 2);
     createCoin(6, 2.5, -25);
-
     createPlatform(0, 2, -35, 6, 2, 6);
     createGoal(0, 3.5, -35);
   
   } else if (level === 2) {
     showStory("【STAGE 2: スカイリフト】<br>上下に動く床があるぞ。<br>乗り継いで高いところへ行け！");
     createPlatform(0, 0, 0, 6, 2, 6);
-    
-    // 上下エレベーター
     createMovingPlatform(0, 2, -8, 3, 0.5, 3, 'y', 2, 1);
     createCoin(0, 5, -8);
-
     createPlatform(0, 4, -16, 4, 1, 4);
     createEnemy(0, 4.9, -16, 'z', 1.5, 3);
-
-    // 左右移動床
     createMovingPlatform(0, 4, -24, 3, 0.5, 3, 'x', 3, 2);
-    
     createPlatform(0, 4, -32, 6, 2, 6);
     createEnemy(-2, 5.4, -32, 'z', 2, 4);
     createEnemy(2, 5.4, -32, 'z', 2, 4);
     createCoin(0, 6, -32);
-
     createGoal(0, 5.5, -32); 
   
   } else if (level === 3) {
     showStory("【FINAL: デス・コースター】<br>高速で動く床の連続だ。<br>落ちたら終わりの最終試練！");
     createPlatform(0, 0, 0, 6, 2, 6);
-
     createMovingPlatform(0, 0, -10, 2, 0.5, 4, 'z', 4, 3);
     createMovingPlatform(0, 0, -20, 2, 0.5, 4, 'x', 4, 3);
     createCoin(0, 1.5, -15);
-
     createPlatform(0, 0, -30, 4, 1, 4);
     createEnemy(0, 0.9, -30, 'x', 1.5, 5); 
-
     createMovingPlatform(0, 2, -40, 2, 0.5, 8, 'y', 3, 2); 
     createCoin(0, 6, -40);
-
     createPlatform(0, 5, -50, 8, 2, 8);
     createEnemy(-3, 6.4, -50, 'z', 3, 4);
     createEnemy(3, 6.4, -50, 'z', 3, 4);
     createEnemy(0, 6.4, -47, 'x', 3, 4);
-    
     createGoal(0, 6.5, -55);
   } else {
     showStory(`【ALL CLEAR】<br>全クリおめでとう！<br>獲得コイン: ${coinCount}枚`);
@@ -346,18 +324,22 @@ const jumpPower = 0.4;
 let velocityY = 0;
 let isGrounded = true;
 
-// ★修正点：引数にdeltaを追加
+// ★ deltaを受け取るように変更
 function update(time: number, delta: number) {
   if (!isGameActive) return;
 
+  // ★ フレームレート補正値 (60FPSを基準とする)
+  // deltaが0.016(60fps)なら1倍、0.008(120fps)なら0.5倍にする
+  const timeScale = delta * 60; 
+
   if (goalObj) {
-    goalObj.rotation.y += 0.02;
-    goalObj.rotation.x += 0.01;
+    goalObj.rotation.y += 0.02 * timeScale;
+    goalObj.rotation.x += 0.01 * timeScale;
   }
 
   for (let i = coins.length - 1; i >= 0; i--) {
     const c = coins[i];
-    c.rotation.y += 0.05;
+    c.rotation.y += 0.05 * timeScale;
     if (player.position.distanceTo(c.position) < 1.0) {
       scene.remove(c);
       coins.splice(i, 1);
@@ -366,7 +348,7 @@ function update(time: number, delta: number) {
     }
   }
 
-  // 動く床の位置更新
+  // 動く床
   movingPlatforms.forEach(mp => {
     const move = Math.sin(time * mp.speed + mp.offset) * mp.range;
     if (mp.axis === 'x') mp.mesh.position.x = mp.basePos.x + move;
@@ -374,6 +356,7 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
+  // 敵
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
     if (enemy.dead) continue;
@@ -381,8 +364,9 @@ function update(time: number, delta: number) {
     const move = Math.sin(time * enemy.speed + enemy.offset) * enemy.range;
     if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
     else enemy.mesh.position.z = enemy.basePos.z + move;
-    enemy.mesh.rotation.x += 0.05;
-    enemy.mesh.rotation.y += 0.05;
+    
+    enemy.mesh.rotation.x += 0.05 * timeScale;
+    enemy.mesh.rotation.y += 0.05 * timeScale;
 
     const dist = player.position.distanceTo(enemy.mesh.position);
     if (dist < 1.0) {
@@ -407,8 +391,9 @@ function update(time: number, delta: number) {
   const isMoving = input.x !== 0 || input.z !== 0;
   
   if (isMoving) {
-    player.position.x += input.x * speed;
-    player.position.z += input.z * speed;
+    // ★移動速度にtimeScaleを掛ける
+    player.position.x += input.x * speed * timeScale;
+    player.position.z += input.z * speed * timeScale;
     player.rotation.y = Math.atan2(input.x, input.z) + Math.PI;
   }
   
@@ -438,10 +423,8 @@ function update(time: number, delta: number) {
     velocityY = 0;
     isGrounded = true;
     
-    // 動く床の追従
     if (onMovingPlatform) {
-      // 速度(v) = d(位置)/dt = cos(...) * ...
-      // 変位 = 速度 * delta
+      // 床の移動速度 × delta (秒)
       const velocity = Math.cos(time * onMovingPlatform.speed + onMovingPlatform.offset) * onMovingPlatform.range * onMovingPlatform.speed * delta;
       
       if (onMovingPlatform.axis === 'x') player.position.x += velocity;
@@ -459,8 +442,9 @@ function update(time: number, delta: number) {
   }
 
   if (!isGrounded) {
-    velocityY -= gravity;
-    player.position.y += velocityY;
+    // ★ 重力と速度加算にもtimeScaleを掛ける
+    velocityY -= gravity * timeScale;
+    player.position.y += velocityY * timeScale;
   }
 
   if (player.position.y < -10) gameOver();
@@ -470,7 +454,7 @@ function update(time: number, delta: number) {
     model.position.copy(player.position);
     model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
-    model.quaternion.slerp(q, 0.2);
+    model.quaternion.slerp(q, 0.2 * timeScale); // 回転補間もスケール
     
     if (isSpinning) {
       model.rotation.y += 20 * delta;
@@ -517,11 +501,14 @@ function gameOver() {
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  const delta = clock.getDelta();
+  
+  // ★ ここでdelta（1フレームにかかった時間）を取得
+  const delta = clock.getDelta(); 
   const time = clock.getElapsedTime();
+
   if (mixer) mixer.update(delta);
   
-  // ★修正：deltaも渡す
+  // ★ deltaをupdate関数に渡す
   update(time, delta);
   
   const camOffset = new THREE.Vector3(0, 5, 8);
