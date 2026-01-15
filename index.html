@@ -3,10 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>3D Action Game</title>
   </head>
   <body>
+    <div id="ui-layer">
+      <div id="joystick-zone"></div>
+
+      <div id="message-container" style="display: none;">
+        <h1 id="message-text">GAME CLEAR!</h1>
+        <button id="retry-btn">RETRY</button>
+      </div>
+
+      <button id="jump-btn">JUMP</button>
+    </div>
+    
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

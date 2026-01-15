@@ -1,5 +1,5 @@
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Arial Black', Impact, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 }
@@ -7,10 +7,101 @@
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden; /* スクロールバーを消す */
+  overflow: hidden;
   background-color: #000;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 canvas {
-  display: block; /* キャンバスの隙間を消す */
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+#ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none; /* 基本はタッチ無視 */
+}
+
+/* ★修正ポイント：画面の左半分をジョイスティック専用エリアとして定義 */
+#joystick-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%; /* 画面の左半分 */
+  height: 100%;
+  pointer-events: auto; /* ここだけタッチ有効 */
+  /* ジョイスティックはこの中に生成されます */
+}
+
+/* メッセージコンテナ */
+#message-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  pointer-events: auto;
+  color: #FFD700;
+  text-shadow: 2px 2px 0 #000;
+  z-index: 30;
+}
+
+#message-text {
+  font-size: 48px;
+  margin-bottom: 20px;
+  letter-spacing: 2px;
+}
+
+#retry-btn {
+  font-size: 24px;
+  padding: 10px 30px;
+  background-color: #fff;
+  color: #000;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+#retry-btn:active {
+  transform: scale(0.95);
+  background-color: #ccc;
+}
+
+/* ジャンプボタン */
+#jump-btn {
+  position: absolute;
+  bottom: 50px;
+  right: 50px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.3);
+  border: 2px solid white;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+  pointer-events: auto; /* ボタンはタッチ有効 */
+  cursor: pointer;
+  z-index: 20;
+  touch-action: manipulation;
+}
+
+#jump-btn:active {
+  background-color: rgba(255, 255, 255, 0.6);
+  transform: scale(0.95);
 }
