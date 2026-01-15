@@ -18,22 +18,22 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambientLight);
 
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(20, 50, 20);
+dirLight.position.set(30, 50, 30);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.width = 2048;
 dirLight.shadow.mapSize.height = 2048;
-dirLight.shadow.camera.left = -50;
-dirLight.shadow.camera.right = 50;
-dirLight.shadow.camera.top = 50;
-dirLight.shadow.camera.bottom = -50;
+// 広大なワールドに対応するため影の範囲を広げる
+dirLight.shadow.camera.left = -100;
+dirLight.shadow.camera.right = 100;
+dirLight.shadow.camera.top = 100;
+dirLight.shadow.camera.bottom = -100;
 scene.add(dirLight);
 
 const textureLoader = new THREE.TextureLoader();
-// 空
 const skyGeo = new THREE.SphereGeometry(500, 32, 32);
 const skyMat = new THREE.MeshBasicMaterial({
   map: textureLoader.load('https://threejs.org/examples/textures/2294472375_24a3b8ef46_o.jpg'),
@@ -44,6 +44,9 @@ scene.add(sky);
 
 const crateTexture = textureLoader.load('https://threejs.org/examples/textures/crate.gif');
 crateTexture.colorSpace = THREE.SRGBColorSpace;
+const stoneTexture = textureLoader.load('https://threejs.org/examples/textures/uv_grid_opengl.jpg');
+stoneTexture.wrapS = THREE.RepeatWrapping;
+stoneTexture.wrapT = THREE.RepeatWrapping;
 
 // --- オブジェクト管理 ---
 interface MovingPlatform {
@@ -54,14 +57,25 @@ interface MovingPlatform {
   speed: number;
   offset: number;
 }
+interface Enemy {
+  mesh: THREE.Mesh;
+  type: 'patrol' | 'chaser'; // 敵の種類
+  basePos: THREE.Vector3;
+  axis?: 'x' | 'z'; // パトロール用
+  range?: number;   // パトロール用
+  speed: number;
+  offset?: number;
+  dead: boolean;
+}
+
 let movingPlatforms: MovingPlatform[] = [];
 let staticPlatforms: THREE.Mesh[] = [];
-let enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: number, speed: number, offset: number, dead: boolean }[] = [];
+let enemies: Enemy[] = [];
 let coins: THREE.Mesh[] = [];
 let goalObj: THREE.Mesh | undefined;
 let goalPosition = new THREE.Vector3();
 
-// --- ユーティリティ ---
+// --- 作成関数群 ---
 function clearStage() {
   staticPlatforms.forEach(p => scene.remove(p));
   movingPlatforms.forEach(p => scene.remove(p.mesh));
@@ -75,9 +89,15 @@ function clearStage() {
   coins = [];
 }
 
-function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number) {
+// 静止床（テクスチャ切り替え対応）
+function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number, type: 'wood'|'stone' = 'wood') {
   const geo = new THREE.BoxGeometry(w, h, d);
-  const mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
+  let mat;
+  if (type === 'wood') {
+    mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
+  } else {
+    mat = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.5, color: 0x888888 });
+  }
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y - h / 2, z); 
   mesh.castShadow = true;
@@ -94,21 +114,30 @@ function createMovingPlatform(x: number, y: number, z: number, w: number, h: num
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
-  movingPlatforms.push({
-    mesh,
-    basePos: new THREE.Vector3(x, y - h/2, z),
-    axis, range, speed, offset: 0
-  });
+  movingPlatforms.push({ mesh, basePos: new THREE.Vector3(x, y - h/2, z), axis, range, speed, offset: 0 });
 }
 
-function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
+// パトロール敵（赤）：決まった場所を往復
+function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
   const geo = new THREE.IcosahedronGeometry(0.4, 0); 
   const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0x330000 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  enemies.push({ mesh, basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6, dead: false });
+  enemies.push({ mesh, type: 'patrol', basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6, dead: false });
+}
+
+// ★追跡敵（紫）：プレイヤーを追いかける
+function createChaserEnemy(x: number, y: number, z: number, speed: number) {
+  // 少しトゲトゲしくする
+  const geo = new THREE.ConeGeometry(0.3, 0.6, 8); 
+  const mat = new THREE.MeshStandardMaterial({ color: 0xaa00ff, roughness: 0.3, emissive: 0x220044 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y + 0.3, z); // 重心調整
+  mesh.castShadow = true;
+  scene.add(mesh);
+  enemies.push({ mesh, type: 'chaser', basePos: new THREE.Vector3(x, y, z), speed, dead: false });
 }
 
 function createCoin(x: number, y: number, z: number) {
@@ -132,7 +161,7 @@ function createGoal(x: number, y: number, z: number) {
   goalPosition.set(x, y, z);
 }
 
-// --- ステージデータ ---
+// --- ステージデータ（ワールドマップ型） ---
 function loadLevel(level: number) {
   clearStage();
   player.position.set(0, 2, 0);
@@ -140,48 +169,98 @@ function loadLevel(level: number) {
   velocityY = 0;
   
   if (level === 1) {
-    showStory("【STAGE 1: 訓練場】<br>攻撃ボタンでスピンアタックだ！<br>敵をぶっ飛ばしてコインを集めろ！");
-    createPlatform(0, 0, 0, 6, 2, 6);
-    createMovingPlatform(0, 0, -10, 4, 1, 4, 'z', 3, 1.5);
-    createCoin(0, 1.5, -10);
-    createPlatform(0, 0, -20, 6, 2, 6);
-    createEnemy(0, 1.4, -20, 'x', 2, 2); 
-    createMovingPlatform(6, 1, -25, 3, 1, 3, 'x', 2, 2);
-    createCoin(6, 2.5, -25);
-    createPlatform(0, 2, -35, 6, 2, 6);
-    createGoal(0, 3.5, -35);
+    showStory("【WORLD 1: はじまりの広場】<br>ここは広いぞ！探索してコインを集めよう。<br>紫の敵は追いかけてくるから注意だ！");
+    
+    // 中央広場
+    createPlatform(0, 0, 0, 10, 2, 10, 'stone');
+    
+    // 北の島（ゴール方面）
+    createPlatform(0, 0, -15, 8, 2, 8, 'wood');
+    createChaserEnemy(0, 1.5, -15, 2.0); // ★追跡者登場
+    
+    // 東の島（コイン島）
+    createPlatform(12, 1, 0, 6, 2, 6, 'wood');
+    createCoin(12, 2.5, 0);
+    createCoin(14, 2.5, 0);
+    createCoin(10, 2.5, 0);
+    createMovingPlatform(6, 0.5, 0, 3, 0.5, 3, 'x', 2, 1); // 橋
+
+    // 西の島（危険地帯）
+    createPlatform(-12, 1, -5, 6, 2, 10, 'stone');
+    createPatrolEnemy(-12, 2.4, -5, 'z', 3, 2);
+    createCoin(-12, 2.5, -9);
+
+    // ゴールへの道
+    createMovingPlatform(0, 2, -25, 4, 0.5, 4, 'z', 3, 1.5);
+    createPlatform(0, 3, -35, 8, 2, 8, 'stone');
+    createGoal(0, 4.5, -35);
   
   } else if (level === 2) {
-    showStory("【STAGE 2: スカイリフト】<br>上下に動く床があるぞ。<br>乗り継いで高いところへ行け！");
-    createPlatform(0, 0, 0, 6, 2, 6);
-    createMovingPlatform(0, 2, -8, 3, 0.5, 3, 'y', 2, 1);
-    createCoin(0, 5, -8);
-    createPlatform(0, 4, -16, 4, 1, 4);
-    createEnemy(0, 4.9, -16, 'z', 1.5, 3);
-    createMovingPlatform(0, 4, -24, 3, 0.5, 3, 'x', 3, 2);
-    createPlatform(0, 4, -32, 6, 2, 6);
-    createEnemy(-2, 5.4, -32, 'z', 2, 4);
-    createEnemy(2, 5.4, -32, 'z', 2, 4);
-    createCoin(0, 6, -32);
-    createGoal(0, 5.5, -32); 
+    showStory("【WORLD 2: スカイ・アスレチック】<br>空に浮かぶ島々を渡り歩け。<br>敵の包囲網を突破するんだ！");
+    
+    // スタート地点
+    createPlatform(0, 0, 0, 6, 2, 6, 'stone');
+    
+    // 分岐ルート
+    // 右ルート
+    createPlatform(8, 1, -8, 5, 1, 5, 'wood');
+    createChaserEnemy(8, 1.5, -8, 2.5); // 追ってくる
+    createCoin(8, 2.5, -8);
+    
+    // 左ルート
+    createPlatform(-8, 1, -8, 5, 1, 5, 'wood');
+    createPatrolEnemy(-8, 1.9, -8, 'x', 2, 2);
+    createCoin(-8, 2.5, -8);
+
+    // 合流地点
+    createPlatform(0, 2, -16, 10, 1, 6, 'stone');
+    createChaserEnemy(-3, 2.5, -16, 2.0);
+    createChaserEnemy(3, 2.5, -16, 2.0); // 2体同時
+
+    // 上層へ
+    createMovingPlatform(0, 2, -24, 3, 0.5, 3, 'y', 3, 1); // エレベーター
+    
+    createPlatform(0, 6, -32, 12, 2, 12, 'stone'); // 広いアリーナ
+    createPatrolEnemy(0, 7.4, -32, 'x', 4, 3);
+    createPatrolEnemy(0, 7.4, -32, 'z', 4, 3); // 十字パトロール
+    createCoin(0, 8, -32);
+    createCoin(4, 8, -32);
+    createCoin(-4, 8, -32);
+
+    createGoal(0, 7.5, -40); // 奥にゴール
   
   } else if (level === 3) {
-    showStory("【FINAL: デス・コースター】<br>高速で動く床の連続だ。<br>落ちたら終わりの最終試練！");
-    createPlatform(0, 0, 0, 6, 2, 6);
-    createMovingPlatform(0, 0, -10, 2, 0.5, 4, 'z', 4, 3);
-    createMovingPlatform(0, 0, -20, 2, 0.5, 4, 'x', 4, 3);
-    createCoin(0, 1.5, -15);
-    createPlatform(0, 0, -30, 4, 1, 4);
-    createEnemy(0, 0.9, -30, 'x', 1.5, 5); 
-    createMovingPlatform(0, 2, -40, 2, 0.5, 8, 'y', 3, 2); 
-    createCoin(0, 6, -40);
-    createPlatform(0, 5, -50, 8, 2, 8);
-    createEnemy(-3, 6.4, -50, 'z', 3, 4);
-    createEnemy(3, 6.4, -50, 'z', 3, 4);
-    createEnemy(0, 6.4, -47, 'x', 3, 4);
-    createGoal(0, 6.5, -55);
+    showStory("【FINAL WORLD: 追跡者の巣窟】<br>ここは敵だらけだ。<br>スピンアタックで道を切り開け！");
+    
+    createPlatform(0, 0, 0, 8, 2, 8, 'stone');
+
+    // 螺旋状の島々
+    createPlatform(0, 1, -10, 4, 1, 4, 'wood');
+    createChaserEnemy(0, 1.5, -10, 3.0); // 高速チェイサー
+
+    createPlatform(8, 2, -10, 4, 1, 4, 'wood');
+    createPlatform(8, 3, -20, 4, 1, 4, 'wood');
+    createChaserEnemy(8, 3.5, -20, 3.5);
+
+    createPlatform(0, 4, -20, 4, 1, 4, 'wood');
+    
+    // 最終決戦場（広い円形イメージ）
+    createPlatform(0, 5, -35, 15, 2, 15, 'stone');
+    
+    // 四方八方から敵
+    createChaserEnemy(-5, 6.5, -35, 2.5);
+    createChaserEnemy(5, 6.5, -35, 2.5);
+    createChaserEnemy(0, 6.5, -40, 2.5);
+    createPatrolEnemy(0, 6.4, -35, 'x', 6, 5); // 高速パトロール
+
+    // 大量のコイン
+    createCoin(0, 7, -35);
+    createCoin(3, 7, -35);
+    createCoin(-3, 7, -35);
+
+    createGoal(0, 6.5, -42);
   } else {
-    showStory(`【ALL CLEAR】<br>全クリおめでとう！<br>獲得コイン: ${coinCount}枚`);
+    showStory(`【ALL CLEAR】<br>ワールド完全制覇！<br>獲得コイン: ${coinCount}枚<br>君は伝説のソルジャーだ！`);
     isGameActive = false;
     goalObj = undefined;
   }
@@ -324,12 +403,9 @@ const jumpPower = 0.4;
 let velocityY = 0;
 let isGrounded = true;
 
-// ★ deltaを受け取るように変更
 function update(time: number, delta: number) {
   if (!isGameActive) return;
 
-  // ★ フレームレート補正値 (60FPSを基準とする)
-  // deltaが0.016(60fps)なら1倍、0.008(120fps)なら0.5倍にする
   const timeScale = delta * 60; 
 
   if (goalObj) {
@@ -348,7 +424,6 @@ function update(time: number, delta: number) {
     }
   }
 
-  // 動く床
   movingPlatforms.forEach(mp => {
     const move = Math.sin(time * mp.speed + mp.offset) * mp.range;
     if (mp.axis === 'x') mp.mesh.position.x = mp.basePos.x + move;
@@ -356,24 +431,40 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
-  // 敵
+  // ★敵の行動ロジック（タイプ別）
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
     if (enemy.dead) continue;
 
-    const move = Math.sin(time * enemy.speed + enemy.offset) * enemy.range;
-    if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
-    else enemy.mesh.position.z = enemy.basePos.z + move;
-    
-    enemy.mesh.rotation.x += 0.05 * timeScale;
-    enemy.mesh.rotation.y += 0.05 * timeScale;
+    if (enemy.type === 'patrol') {
+      // パトロール型：決まった軌道を往復
+      const move = Math.sin(time * enemy.speed + (enemy.offset || 0)) * (enemy.range || 0);
+      if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
+      else enemy.mesh.position.z = enemy.basePos.z + move;
+      // 回転演出
+      enemy.mesh.rotation.y += 0.05 * timeScale;
 
+    } else if (enemy.type === 'chaser') {
+      // ★追跡型：プレイヤーとの距離を測る
+      const dist = player.position.distanceTo(enemy.mesh.position);
+      // 15m以内に近づいたら追いかける
+      if (dist < 15 && dist > 0.5) {
+        // プレイヤーへの方向ベクトル
+        const direction = new THREE.Vector3().subVectors(player.position, enemy.mesh.position).normalize();
+        // 移動
+        enemy.mesh.position.add(direction.multiplyScalar(enemy.speed * 0.03 * timeScale));
+        // プレイヤーの方を向く
+        enemy.mesh.lookAt(player.position);
+      }
+    }
+
+    // 衝突判定
     const dist = player.position.distanceTo(enemy.mesh.position);
     if (dist < 1.0) {
       if (isSpinning) {
         enemy.dead = true;
         scene.remove(enemy.mesh);
-        velocityY = 0.2;
+        velocityY = 0.2; // 踏みつけジャンプ
       } else {
         gameOver();
       }
@@ -391,7 +482,6 @@ function update(time: number, delta: number) {
   const isMoving = input.x !== 0 || input.z !== 0;
   
   if (isMoving) {
-    // ★移動速度にtimeScaleを掛ける
     player.position.x += input.x * speed * timeScale;
     player.position.z += input.z * speed * timeScale;
     player.rotation.y = Math.atan2(input.x, input.z) + Math.PI;
@@ -424,9 +514,7 @@ function update(time: number, delta: number) {
     isGrounded = true;
     
     if (onMovingPlatform) {
-      // 床の移動速度 × delta (秒)
       const velocity = Math.cos(time * onMovingPlatform.speed + onMovingPlatform.offset) * onMovingPlatform.range * onMovingPlatform.speed * delta;
-      
       if (onMovingPlatform.axis === 'x') player.position.x += velocity;
       else if (onMovingPlatform.axis === 'z') player.position.z += velocity;
     }
@@ -442,7 +530,6 @@ function update(time: number, delta: number) {
   }
 
   if (!isGrounded) {
-    // ★ 重力と速度加算にもtimeScaleを掛ける
     velocityY -= gravity * timeScale;
     player.position.y += velocityY * timeScale;
   }
@@ -454,7 +541,7 @@ function update(time: number, delta: number) {
     model.position.copy(player.position);
     model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
-    model.quaternion.slerp(q, 0.2 * timeScale); // 回転補間もスケール
+    model.quaternion.slerp(q, 0.2 * timeScale); 
     
     if (isSpinning) {
       model.rotation.y += 20 * delta;
@@ -501,14 +588,9 @@ function gameOver() {
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  
-  // ★ ここでdelta（1フレームにかかった時間）を取得
   const delta = clock.getDelta(); 
   const time = clock.getElapsedTime();
-
   if (mixer) mixer.update(delta);
-  
-  // ★ deltaをupdate関数に渡す
   update(time, delta);
   
   const camOffset = new THREE.Vector3(0, 5, 8);
