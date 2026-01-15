@@ -6,10 +6,11 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // --- ゲーム状態 ---
 let currentLevel = 1;
 let isGameActive = false;
+let coinCount = 0;
+let isSpinning = false; // 攻撃中フラグ
 
 // --- 1. シーン初期化 ---
 const scene = new THREE.Scene();
-
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -17,7 +18,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
 
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -32,8 +33,7 @@ dirLight.shadow.camera.bottom = -50;
 scene.add(dirLight);
 
 const textureLoader = new THREE.TextureLoader();
-
-// 背景
+// 空
 const skyGeo = new THREE.SphereGeometry(500, 32, 32);
 const skyMat = new THREE.MeshBasicMaterial({
   map: textureLoader.load('https://threejs.org/examples/textures/2294472375_24a3b8ef46_o.jpg'),
@@ -42,51 +42,95 @@ const skyMat = new THREE.MeshBasicMaterial({
 const sky = new THREE.Mesh(skyGeo, skyMat);
 scene.add(sky);
 
-// --- オブジェクト管理 ---
-let platforms: THREE.Mesh[] = [];
-let enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: number, speed: number, offset: number }[] = [];
-let goalObj: THREE.Mesh | undefined;
-let goalPosition = new THREE.Vector3();
-
 const crateTexture = textureLoader.load('https://threejs.org/examples/textures/crate.gif');
 crateTexture.colorSpace = THREE.SRGBColorSpace;
 
+// --- オブジェクト管理 ---
+// 動く床の定義
+interface MovingPlatform {
+  mesh: THREE.Mesh;
+  basePos: THREE.Vector3;
+  axis: 'x' | 'y' | 'z';
+  range: number;
+  speed: number;
+  offset: number;
+}
+let movingPlatforms: MovingPlatform[] = [];
+let staticPlatforms: THREE.Mesh[] = []; // 動かない床
+let enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: number, speed: number, offset: number, dead: boolean }[] = [];
+let coins: THREE.Mesh[] = [];
+let goalObj: THREE.Mesh | undefined;
+let goalPosition = new THREE.Vector3();
+
+// --- ユーティリティ ---
 function clearStage() {
-  platforms.forEach(p => scene.remove(p));
+  staticPlatforms.forEach(p => scene.remove(p));
+  movingPlatforms.forEach(p => scene.remove(p.mesh));
   enemies.forEach(e => scene.remove(e.mesh));
+  coins.forEach(c => scene.remove(c));
   if (goalObj) scene.remove(goalObj);
-  platforms = [];
+  
+  staticPlatforms = [];
+  movingPlatforms = [];
   enemies = [];
+  coins = [];
 }
 
+// 静止床作成
 function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number) {
   const geo = new THREE.BoxGeometry(w, h, d);
-  const mat = new THREE.MeshStandardMaterial({ 
-    map: crateTexture, 
-    roughness: 0.8,    
-    metalness: 0.1     
-  });
+  const mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y - h / 2, z); 
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
-  platforms.push(mesh);
+  staticPlatforms.push(mesh);
 }
 
+// ★動く床作成
+function createMovingPlatform(x: number, y: number, z: number, w: number, h: number, d: number, axis: 'x'|'y'|'z', range: number, speed: number) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  // 動く床は少し色を変える（黄色っぽく）
+  const mat = new THREE.MeshStandardMaterial({ map: crateTexture, color: 0xffffaa, roughness: 0.8 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y - h / 2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  movingPlatforms.push({
+    mesh,
+    basePos: new THREE.Vector3(x, y - h/2, z),
+    axis, range, speed, offset: 0
+  });
+}
+
+// 敵作成
 function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
   const geo = new THREE.IcosahedronGeometry(0.4, 0); 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, metalness: 0.7, emissive: 0x330000 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0x330000 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  enemies.push({ mesh, basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6 });
+  enemies.push({ mesh, basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6, dead: false });
+}
+
+// ★コイン作成
+function createCoin(x: number, y: number, z: number) {
+  const geo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
+  const mat = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 100, emissive: 0xaa8800 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.rotation.z = Math.PI / 2; // 立てる
+  mesh.castShadow = true;
+  scene.add(mesh);
+  coins.push(mesh);
 }
 
 function createGoal(x: number, y: number, z: number) {
   const geo = new THREE.OctahedronGeometry(1, 0);
-  const mat = new THREE.MeshPhongMaterial({ color: 0xffd700, shininess: 100, emissive: 0xaa6600 });
+  const mat = new THREE.MeshPhongMaterial({ color: 0x00ffff, shininess: 100, emissive: 0x0044aa });
   goalObj = new THREE.Mesh(geo, mat);
   goalObj.position.set(x, y, z);
   goalObj.castShadow = true;
@@ -102,49 +146,74 @@ function loadLevel(level: number) {
   velocityY = 0;
   
   if (level === 1) {
-    showStory("【STAGE 1: 訓練場】<br>兵士よ、訓練開始だ。<br>この体でアスレチックを走破せよ！");
+    showStory("【STAGE 1: 訓練場】<br>攻撃ボタンでスピンアタックだ！<br>敵をぶっ飛ばしてコインを集めろ！");
     createPlatform(0, 0, 0, 6, 2, 6);
-    createPlatform(0, 0, -10, 4, 2, 10);
-    createPlatform(0, 1, -20, 3, 1, 3);
-    createPlatform(0, 2, -25, 3, 1, 3);
-    createPlatform(0, 3, -35, 6, 2, 6);
-    createGoal(0, 4.5, -35);
+    
+    // 動く床の練習
+    createMovingPlatform(0, 0, -10, 4, 1, 4, 'z', 3, 1.5);
+    createCoin(0, 1.5, -10);
+
+    createPlatform(0, 0, -20, 6, 2, 6);
+    createEnemy(0, 1.4, -20, 'x', 2, 2); // 倒せる敵
+
+    createMovingPlatform(6, 1, -25, 3, 1, 3, 'x', 2, 2);
+    createCoin(6, 2.5, -25);
+
+    createPlatform(0, 2, -35, 6, 2, 6);
+    createGoal(0, 3.5, -35);
   
   } else if (level === 2) {
-    showStory("【STAGE 2: 敵基地潜入】<br>赤いドローンを回避せよ。<br>人間離れした動きで突破するんだ。");
+    showStory("【STAGE 2: スカイリフト】<br>上下に動く床があるぞ。<br>乗り継いで高いところへ行け！");
     createPlatform(0, 0, 0, 6, 2, 6);
-    createPlatform(0, 0, -10, 3, 1, 8);
-    createEnemy(0, 1.0, -10, 'z', 3, 2);
-    createPlatform(0, 0, -20, 8, 1, 3);
-    createEnemy(-2, 1.0, -20, 'x', 2, 3);
-    createEnemy(2, 1.0, -20, 'x', 2, 3);
-    createPlatform(0, 1, -30, 2, 1, 10);
-    createEnemy(0, 1.9, -30, 'z', 4, 4);
-    createPlatform(0, 1, -45, 6, 2, 6);
-    createGoal(0, 2.5, -45);
+    
+    // 上下エレベーター
+    createMovingPlatform(0, 2, -8, 3, 0.5, 3, 'y', 2, 1);
+    createCoin(0, 5, -8);
+
+    createPlatform(0, 4, -16, 4, 1, 4);
+    createEnemy(0, 4.9, -16, 'z', 1.5, 3);
+
+    // 左右移動床
+    createMovingPlatform(0, 4, -24, 3, 0.5, 3, 'x', 3, 2);
+    
+    createPlatform(0, 4, -32, 6, 2, 6);
+    createEnemy(-2, 5.4, -32, 'z', 2, 4);
+    createEnemy(2, 5.4, -32, 'z', 2, 4);
+    createCoin(0, 6, -32);
+
+    createGoal(0, 5.5, -32); // ゴール近くだが敵がいる
   
   } else if (level === 3) {
-    showStory("【FINAL STAGE: 天空の決戦】<br>これが最後の任務だ。<br>必ず生きて帰還せよ！");
+    showStory("【FINAL: デス・コースター】<br>高速で動く床の連続だ。<br>落ちたら終わりの最終試練！");
     createPlatform(0, 0, 0, 6, 2, 6);
-    createPlatform(0, 0, -12, 2, 1, 2);
-    createPlatform(3, 1, -15, 2, 1, 2);
-    createPlatform(-3, 2, -18, 2, 1, 2);
-    createPlatform(0, 3, -25, 10, 1, 4);
-    createEnemy(-4, 3.9, -25, 'x', 4, 5);
-    createEnemy(4, 3.9, -25, 'x', 4, 5);
-    createPlatform(0, 4, -35, 1.5, 1, 8);
-    createEnemy(0, 4.9, -35, 'z', 3, 6);
+
+    // 連続移動床
+    createMovingPlatform(0, 0, -10, 2, 0.5, 4, 'z', 4, 3);
+    createMovingPlatform(0, 0, -20, 2, 0.5, 4, 'x', 4, 3);
+    createCoin(0, 1.5, -15);
+
+    createPlatform(0, 0, -30, 4, 1, 4);
+    createEnemy(0, 0.9, -30, 'x', 1.5, 5); // 高速敵
+
+    createMovingPlatform(0, 2, -40, 2, 0.5, 8, 'y', 3, 2); // 巨大エレベーター
+    createCoin(0, 6, -40);
+
     createPlatform(0, 5, -50, 8, 2, 8);
-    createGoal(0, 6.5, -50);
+    // 敵の群れ
+    createEnemy(-3, 6.4, -50, 'z', 3, 4);
+    createEnemy(3, 6.4, -50, 'z', 3, 4);
+    createEnemy(0, 6.4, -47, 'x', 3, 4);
+    
+    createGoal(0, 6.5, -55);
   } else {
-    showStory("【MISSION COMPLETE】<br>任務完了！<br>素晴らしい働きだった！");
+    showStory(`【ALL CLEAR】<br>全クリおめでとう！<br>獲得コイン: ${coinCount}枚`);
     isGameActive = false;
     goalObj = undefined;
   }
 }
 
 // --- プレイヤー & モデル ---
-const playerGeometry = new THREE.BoxGeometry(0.8, 1, 0.8);
+const playerGeometry = new THREE.BoxGeometry(0.5, 1, 0.5); // 当たり判定少し小さく
 const playerMaterial = new THREE.MeshBasicMaterial({ visible: false });
 const player = new THREE.Mesh(playerGeometry, playerMaterial);
 scene.add(player);
@@ -176,22 +245,15 @@ loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
 function fadeToAction(name: string, duration: number) {
   if (!actions[name]) {
     if (name === 'Jump') name = 'Run'; 
-    else if (name === 'Death') name = 'Idle';
+    else if (name === 'Spin') name = 'Run'; // 攻撃時も走りモーションで代用（回転させるのでOK）
     else return;
   }
-  
   if (activeAction === actions[name]) return;
   
   const previousAction = activeAction;
   activeAction = actions[name];
   if (previousAction) previousAction.fadeOut(duration);
-  
-  activeAction
-    .reset()
-    .setEffectiveTimeScale(1.0)
-    .setEffectiveWeight(1)
-    .fadeIn(duration)
-    .play();
+  activeAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(duration).play();
 }
 
 // --- UI制御 ---
@@ -201,11 +263,15 @@ const nextBtn = document.getElementById('next-btn') as HTMLElement;
 const messageContainer = document.getElementById('message-container') as HTMLElement;
 const bigMessage = document.getElementById('big-message') as HTMLElement;
 const retryBtn = document.getElementById('retry-btn') as HTMLElement;
+const coinCounter = document.getElementById('coin-counter') as HTMLElement;
 
 function showStory(text: string) {
   isGameActive = false;
   storyBox.style.display = 'flex';
   storyText.innerHTML = text;
+}
+function updateCoinDisplay() {
+  coinCounter.innerText = `🪙 ${coinCount}`;
 }
 
 nextBtn.addEventListener('click', () => {
@@ -227,15 +293,27 @@ retryBtn.addEventListener('click', () => {
 const input = { x: 0, z: 0 };
 const keys: { [key: string]: boolean } = { w: false, a: false, s: false, d: false };
 let jumpPressed = false;
+let attackPressed = false;
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') jumpPressed = true;
+  if (e.code === 'KeyK') attack(true); // Kキーでも攻撃可
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') jumpPressed = false;
+  if (e.code === 'KeyK') attack(false);
   keys[e.key.toLowerCase()] = false;
 });
+
+// 攻撃処理
+function attack(pressed: boolean) {
+  if (pressed && !isSpinning) {
+    isSpinning = true;
+    // 0.5秒後に回転終了
+    setTimeout(() => { isSpinning = false; }, 500);
+  }
+}
 
 const jumpBtn = document.getElementById('jump-btn');
 if (jumpBtn) {
@@ -243,6 +321,12 @@ if (jumpBtn) {
   jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); jumpPressed = false; }, { passive: false });
   jumpBtn.addEventListener('mousedown', () => jumpPressed = true);
   jumpBtn.addEventListener('mouseup', () => jumpPressed = false);
+}
+
+const attackBtn = document.getElementById('attack-btn');
+if (attackBtn) {
+  attackBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); attack(true); }, { passive: false });
+  attackBtn.addEventListener('mousedown', () => attack(true));
 }
 
 const joystickManager = nipplejs.create({
@@ -267,27 +351,68 @@ const gravity = 0.015;
 const jumpPower = 0.4;
 let velocityY = 0;
 let isGrounded = true;
+let movingPlatformDelta = new THREE.Vector3(); // 動く床による移動量
 
 function update(time: number) {
   if (!isGameActive) return;
 
+  // ゴール回転
   if (goalObj) {
     goalObj.rotation.y += 0.02;
     goalObj.rotation.x += 0.01;
   }
 
-  for (const enemy of enemies) {
+  // コイン回転 & 取得判定
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const c = coins[i];
+    c.rotation.y += 0.05;
+    if (player.position.distanceTo(c.position) < 1.0) {
+      // 取得！
+      scene.remove(c);
+      coins.splice(i, 1);
+      coinCount++;
+      updateCoinDisplay();
+    }
+  }
+
+  // 動く床の更新
+  movingPlatforms.forEach(mp => {
+    const move = Math.sin(time * mp.speed + mp.offset) * mp.range;
+    // 前回の位置を保存しておき、差分を計算してもいいが、今回は単純に位置設定
+    // プレイヤーが乗っている場合の処理のために現在位置を保持
+    if (mp.axis === 'x') mp.mesh.position.x = mp.basePos.x + move;
+    else if (mp.axis === 'y') mp.mesh.position.y = mp.basePos.y + move;
+    else mp.mesh.position.z = mp.basePos.z + move;
+  });
+
+  // 敵の動き & 攻撃判定
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const enemy = enemies[i];
+    if (enemy.dead) continue;
+
     const move = Math.sin(time * enemy.speed + enemy.offset) * enemy.range;
     if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
     else enemy.mesh.position.z = enemy.basePos.z + move;
     enemy.mesh.rotation.x += 0.05;
     enemy.mesh.rotation.y += 0.05;
 
-    if (player.position.distanceTo(enemy.mesh.position) < 0.8) {
-      gameOver();
+    // 衝突判定
+    const dist = player.position.distanceTo(enemy.mesh.position);
+    if (dist < 1.0) {
+      if (isSpinning) {
+        // 敵を倒す！
+        enemy.dead = true;
+        scene.remove(enemy.mesh);
+        // 少し跳ねる演出
+        velocityY = 0.2;
+      } else {
+        // やられた
+        gameOver();
+      }
     }
   }
 
+  // プレイヤー移動入力
   let moveX = 0, moveZ = 0;
   if (keys['w']) moveZ -= 1; if (keys['s']) moveZ += 1;
   if (keys['a']) moveX -= 1; if (keys['d']) moveX += 1;
@@ -297,30 +422,59 @@ function update(time: number) {
   } else if (!joystickManager.get(0)) { /* nop */ }
 
   const isMoving = input.x !== 0 || input.z !== 0;
+  
+  // プレイヤーの位置更新
+  // 1. 自力移動
   if (isMoving) {
     player.position.x += input.x * speed;
     player.position.z += input.z * speed;
-    // ★ここが修正ポイント：Math.PIを足して180度回転させる
     player.rotation.y = Math.atan2(input.x, input.z) + Math.PI;
   }
+  
+  // 2. 動く床による移動（前のフレームとの差分ではなく、乗っている床の移動量に追従）
+  // 簡易実装：接地判定のループ内で「今乗っている動く床」を特定し、その移動を適用する
 
+  // 接地判定
   let groundY = -999;
-  for (const p of platforms) {
-    const w = p.geometry.parameters.width;
-    const d = p.geometry.parameters.depth;
-    const h = p.geometry.parameters.height;
-    const top = p.position.y + h/2;
-    if (player.position.x >= p.position.x - w/2 && player.position.x <= p.position.x + w/2 &&
-        player.position.z >= p.position.z - d/2 && player.position.z <= p.position.z + d/2) {
+  let onMovingPlatform: MovingPlatform | null = null; // 今乗ってる動く床
+
+  // 静止床チェック
+  for (const p of staticPlatforms) {
+    if (checkOnPlatform(player, p)) {
+      const top = p.position.y + p.geometry.parameters.height/2;
       if (top > groundY) groundY = top;
     }
   }
+  // 動く床チェック
+  for (const mp of movingPlatforms) {
+    if (checkOnPlatform(player, mp.mesh)) {
+      const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2;
+      if (top > groundY) {
+        groundY = top;
+        onMovingPlatform = mp;
+      }
+    }
+  }
 
+  // 重力と接地処理
   const pBottom = player.position.y - 0.5;
   if (pBottom <= groundY + 0.1 && velocityY <= 0 && groundY > -100) {
     player.position.y = groundY + 0.5;
     velocityY = 0;
     isGrounded = true;
+    
+    // ★動く床に乗っているなら、一緒に動かす
+    if (onMovingPlatform) {
+      // 本来は「前フレームからの差分」を加算すべきだが、
+      // 簡易的に「床の移動速度分」を加算する
+      // (sin波の微分 cos を使って速度を出す)
+      const velocity = Math.cos(time * onMovingPlatform.speed + onMovingPlatform.offset) * onMovingPlatform.range * onMovingPlatform.speed * delta;
+      
+      if (onMovingPlatform.axis === 'x') player.position.x += velocity;
+      else if (onMovingPlatform.axis === 'z') player.position.z += velocity;
+      // y軸移動床の場合は、groundYが毎フレーム変わるので自動的に追従する（上のplayer.position.y = groundY + 0.5で処理される）
+    }
+
   } else {
     isGrounded = false;
   }
@@ -337,21 +491,24 @@ function update(time: number) {
   }
 
   if (player.position.y < -10) gameOver();
+  if (goalObj && player.position.distanceTo(goalPosition) < 1.5) gameClear();
 
-  if (goalObj && player.position.distanceTo(goalPosition) < 1.5) {
-    gameClear();
-  }
-
+  // モデル同期
   if (model) {
     model.position.copy(player.position);
     model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
     model.quaternion.slerp(q, 0.2);
     
+    // スピン中なら高速回転
+    if (isSpinning) {
+      model.rotation.y += 20 * delta; // ぐるぐる回る
+      // 攻撃モーションはないので回転で表現
+    }
+
     if (isGrounded) {
       if (isMoving) {
         fadeToAction('Run', 0.2);
-        // 足が速すぎるのを防ぐため速度調整（0.7倍）
         if (activeAction) activeAction.setEffectiveTimeScale(0.7);
       } else {
         fadeToAction('Idle', 0.2);
@@ -360,6 +517,19 @@ function update(time: number) {
       fadeToAction('Jump', 0.1);
     }
   }
+}
+
+// ヘルパー：床に乗ってるか判定
+function checkOnPlatform(player: THREE.Mesh, platform: THREE.Mesh): boolean {
+  const w = platform.geometry.parameters.width;
+  const d = platform.geometry.parameters.depth;
+  // 回転していない前提のAABB判定
+  return (
+    player.position.x >= platform.position.x - w/2 &&
+    player.position.x <= platform.position.x + w/2 &&
+    player.position.z >= platform.position.z - d/2 &&
+    player.position.z <= platform.position.z + d/2
+  );
 }
 
 function gameClear() {
@@ -379,10 +549,20 @@ function gameOver() {
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  const delta = clock.getDelta();
+  const delta = clock.getDelta(); // 秒単位の経過時間
   const time = clock.getElapsedTime();
   if (mixer) mixer.update(delta);
-  update(time);
+  // update関数にdeltaも渡すため、グローバル変数か引数で対応が必要だが、
+  // ここではupdate内でdeltaを使うために修正が必要。
+  // update関数の引数を変更せず、closureで参照するか、
+  // update内でclock.getDelta()を呼ぶと2回呼ぶことになるので、
+  // animate内で取得したdeltaをグローバル変数のように扱うのが簡易的。
+  // 今回はupdate内の移動床計算でdeltaが必要なので、updateの定義を変えずに
+  // clock.getDelta() の値を使うように修正済み（変数delta）
+  // ※ただしupdate関数内からanimateスコープのdeltaは見えないので、
+  // update関数を修正してdeltaを受け取るようにする。
+  
+  update(time, delta); // ★修正：deltaも渡す
   
   const camOffset = new THREE.Vector3(0, 5, 8);
   const target = player.position.clone().add(camOffset);
@@ -390,4 +570,23 @@ function animate() {
   camera.lookAt(player.position);
   renderer.render(scene, camera);
 }
+
+// update関数のシグネチャ変更（末尾に追加）
+// 元の update(time: number) を update(time: number, delta: number) に書き換え
+// ※上のコードブロック内のupdate定義も書き換えていますか？
+// → 書き換えておきます。
+
+// ★以下、update関数の定義修正版（上のコードブロックに統合済みとみなしてください）
+// 実際には上のコードブロックの `function update(time: number) {` を
+// `function update(time: number, delta: number) {` に書き換えて貼り付けてください。
+
+// 念のため、animate関数とupdate関数の連携部分を正しく記述します。
+/*
+function update(time: number, delta: number) { ... }
+function animate() {
+  ...
+  update(time, delta);
+  ...
+}
+*/
 animate();

@@ -62,10 +62,7 @@ canvas {
   justify-content: space-between;
 }
 
-#story-text {
-  margin: 0;
-  line-height: 1.4;
-}
+#story-text { margin: 0; line-height: 1.4; }
 
 #next-btn {
   align-self: flex-end;
@@ -76,12 +73,19 @@ canvas {
   cursor: pointer;
   font-weight: bold;
 }
-#next-btn:active {
-  background-color: #fff;
-  color: #000;
+
+/* コイン表示 */
+#coin-counter {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  font-size: 32px;
+  color: #FFD700;
+  text-shadow: 2px 2px 0 #000;
+  z-index: 20;
 }
 
-/* 全画面メッセージ（クリア/ゲームオーバー） */
+/* メッセージ画面 */
 #message-container {
   position: absolute;
   top: 0;
@@ -99,11 +103,7 @@ canvas {
   z-index: 100;
 }
 
-#big-message {
-  font-size: 48px;
-  margin-bottom: 20px;
-}
-
+#big-message { font-size: 48px; margin-bottom: 20px; }
 #retry-btn {
   font-size: 24px;
   padding: 10px 30px;
@@ -115,25 +115,57 @@ canvas {
   font-weight: bold;
 }
 
-/* ジャンプボタン */
-#jump-btn {
+/* アクションボタン共通設定 */
+.action-btn {
   position: absolute;
-  bottom: 160px; /* ストーリー枠とかぶらないよう少し上に */
-  right: 30px;
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.3);
   border: 2px solid white;
   color: white;
   font-weight: bold;
-  font-size: 16px;
+  font-size: 14px;
   pointer-events: auto;
   cursor: pointer;
   z-index: 20;
   touch-action: manipulation;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
-#jump-btn:active {
-  background-color: rgba(255, 255, 255, 0.6);
-  transform: scale(0.95);
+.action-btn:active { transform: scale(0.95); }
+
+/* ジャンプボタン（右下） */
+#jump-btn {
+  /* class="action-btn" のスタイルも適用したいが、JS制御外なのでIDセレクタで書く */
+  position: absolute;
+  bottom: 80px;
+  right: 40px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background-color: rgba(255, 255, 255, 0.3);
+  color: white;
+  font-weight: bold;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
+#jump-btn:active { background-color: rgba(255, 255, 255, 0.6); transform: scale(0.95); }
+
+/* 攻撃ボタン（ジャンプの左上） */
+#attack-btn {
+  position: absolute;
+  bottom: 60px;
+  right: 140px;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background-color: rgba(255, 50, 50, 0.5); /* 赤っぽい色 */
+  color: white;
+  font-weight: bold;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+#attack-btn:active { background-color: rgba(255, 50, 50, 0.8); transform: scale(0.95); }
