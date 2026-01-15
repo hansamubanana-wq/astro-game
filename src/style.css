@@ -19,41 +19,15 @@ canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
 #joystick-zone { position: absolute; top: 0; left: 0; width: 50%; height: 100%; pointer-events: auto; }
 
-/* ★シネマティック黒帯 */
-.cinema-bar {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  height: 0; /* 最初は高さ0 */
-  background-color: #000;
-  z-index: 200;
-  transition: height 0.5s ease-in-out;
-}
+/* シネマティック */
+.cinema-bar { position: absolute; left: 0; width: 100%; height: 0; background-color: #000; z-index: 200; transition: height 0.5s ease-in-out; }
 #cinema-bar-top { top: 0; }
 #cinema-bar-bottom { bottom: 0; }
+.cinematic-active #cinema-bar-top, .cinematic-active #cinema-bar-bottom { height: 10%; }
+#cinema-subtitle { position: absolute; bottom: 12%; width: 100%; text-align: center; color: #fff; font-size: 24px; text-shadow: 2px 2px 4px #000; opacity: 0; transition: opacity 0.5s; z-index: 201; }
 
-/* 黒帯が出ている時は高さを持つクラス */
-.cinematic-active #cinema-bar-top,
-.cinematic-active #cinema-bar-bottom {
-  height: 10%; /* 上下10%を黒くする */
-}
-
-/* ★シネマ字幕 */
-#cinema-subtitle {
-  position: absolute;
-  bottom: 12%; /* 黒帯の少し上 */
-  width: 100%;
-  text-align: center;
-  color: #fff;
-  font-size: 24px;
-  text-shadow: 2px 2px 4px #000;
-  opacity: 0;
-  transition: opacity 0.5s;
-  z-index: 201;
-}
-
-/* ストーリーBOX（通常会話） */
-#story-box { position: absolute; bottom: 20px; left: 5%; width: 90%; height: 120px; background-color: rgba(0, 0, 0, 0.85); border: 4px solid #fff; border-radius: 10px; padding: 15px; box-sizing: border-box; color: #fff; font-size: 16px; z-index: 50; pointer-events: auto; display: flex; flex-direction: column; justify-content: space-between; }
+/* ストーリー */
+#story-box { position: absolute; bottom: 20px; left: 5%; width: 90%; height: 120px; background-color: rgba(0,0,0,0.85); border: 4px solid #fff; border-radius: 10px; padding: 15px; box-sizing: border-box; color: #fff; font-size: 16px; z-index: 50; pointer-events: auto; display: flex; flex-direction: column; justify-content: space-between; }
 #story-text { margin: 0; line-height: 1.4; }
 #next-btn { align-self: flex-end; background: none; border: 1px solid #fff; color: #fff; padding: 5px 15px; cursor: pointer; font-weight: bold; pointer-events: auto; }
 #next-btn:active { background-color: #fff; color: #000; }
@@ -68,21 +42,28 @@ canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 #boss-hp-fill { width: 100%; height: 100%; background-color: #ff0000; transition: width 0.2s; }
 
 /* メッセージ */
-#message-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; color: #FFD700; text-shadow: 2px 2px 0 #000; z-index: 100; }
+#message-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; color: #FFD700; text-shadow: 2px 2px 0 #000; z-index: 100; }
 #big-message { font-size: 48px; margin-bottom: 20px; }
 #retry-btn { font-size: 24px; padding: 10px 30px; background-color: #fff; color: #000; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; pointer-events: auto; }
 #retry-btn:active { transform: scale(0.95); background-color: #ccc; }
 
-/* ボタン */
-#jump-btn { position: absolute; bottom: 80px; right: 40px; width: 80px; height: 80px; border-radius: 50%; border: 2px solid white; background-color: rgba(255, 255, 255, 0.3); color: white; font-weight: bold; font-size: 14px; pointer-events: auto; touch-action: manipulation; cursor: pointer; z-index: 20; }
-#jump-btn:active { background-color: rgba(255, 255, 255, 0.6); transform: scale(0.95); }
-#attack-btn { position: absolute; bottom: 60px; right: 140px; width: 70px; height: 70px; border-radius: 50%; border: 2px solid white; background-color: rgba(255, 50, 50, 0.5); color: white; font-weight: bold; font-size: 12px; pointer-events: auto; touch-action: manipulation; cursor: pointer; z-index: 20; }
-#attack-btn:active { background-color: rgba(255, 50, 50, 0.8); transform: scale(0.95); }
+/* アクションボタン共通 */
+button { user-select: none; -webkit-tap-highlight-color: transparent; }
 
-/* シネマティック中はUIを隠す */
+#jump-btn { position: absolute; bottom: 80px; right: 40px; width: 80px; height: 80px; border-radius: 50%; border: 2px solid white; background-color: rgba(255,255,255,0.3); color: white; font-weight: bold; font-size: 14px; pointer-events: auto; touch-action: manipulation; cursor: pointer; z-index: 20; }
+#jump-btn:active { background-color: rgba(255,255,255,0.6); transform: scale(0.95); }
+
+#attack-btn { position: absolute; bottom: 60px; right: 140px; width: 70px; height: 70px; border-radius: 50%; border: 2px solid white; background-color: rgba(255,50,50,0.5); color: white; font-weight: bold; font-size: 12px; pointer-events: auto; touch-action: manipulation; cursor: pointer; z-index: 20; }
+#attack-btn:active { background-color: rgba(255,50,50,0.8); transform: scale(0.95); }
+
+/* ★ダッシュボタン（新設） */
+#dash-btn { position: absolute; bottom: 150px; right: 100px; width: 60px; height: 60px; border-radius: 50%; border: 2px solid white; background-color: rgba(50,255,255,0.5); color: white; font-weight: bold; font-size: 11px; pointer-events: auto; touch-action: manipulation; cursor: pointer; z-index: 20; }
+#dash-btn:active { background-color: rgba(50,255,255,0.8); transform: scale(0.95); }
+
 .cinematic-active #joystick-zone,
 .cinematic-active #jump-btn,
 .cinematic-active #attack-btn,
+.cinematic-active #dash-btn,
 .cinematic-active #coin-counter,
 .cinematic-active #story-box,
 .cinematic-active #boss-hud {
