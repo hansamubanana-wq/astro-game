@@ -57,15 +57,18 @@ interface MovingPlatform {
   offset: number;
 }
 
+// ★敵の定義を拡張（アニメーション用）
 interface Enemy {
-  mesh: THREE.Mesh;
+  mesh: THREE.Group; // GLBモデルはGroup
+  mixer: THREE.AnimationMixer; // 個別のアニメーション管理
   type: 'patrol' | 'chaser'; 
   speed: number;
   dead: boolean;
+  deadTimer: number; // 死亡アニメーション再生用タイマー
   velocityY: number;
-  // パトロール用
   patrolAxis?: 'x' | 'z'; 
-  patrolDir?: number; // 1 or -1
+  patrolDir?: number;
+  basePos: THREE.Vector3; // パトロール基準点
 }
 
 let movingPlatforms: MovingPlatform[] = [];
@@ -74,6 +77,9 @@ let enemies: Enemy[] = [];
 let coins: THREE.Mesh[] = [];
 let goalObj: THREE.Mesh | undefined;
 let goalPosition = new THREE.Vector3();
+
+// ★敵モデルのリソース保存用
+let enemyResource: any = null;
 
 // --- 作成関数群 ---
 function clearStage() {
@@ -116,34 +122,48 @@ function createMovingPlatform(x: number, y: number, z: number, w: number, h: num
   movingPlatforms.push({ mesh, basePos: new THREE.Vector3(x, y - h/2, z), axis, range, speed, offset: 0 });
 }
 
-// パトロール敵（赤）：崖で折り返す
-function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) {
-  const geo = new THREE.IcosahedronGeometry(0.4, 0); 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0x330000 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, z);
-  mesh.castShadow = true;
-  scene.add(mesh);
+// ★敵作成（ロボットモデルをクローンして使用）
+function spawnEnemy(x: number, y: number, z: number, type: 'patrol'|'chaser', axis: 'x'|'z'|undefined, speed: number) {
+  if (!enemyResource) return;
+
+  // モデルを複製
+  const enemyMesh = enemyResource.scene.clone();
+  enemyMesh.position.set(x, y, z);
+  enemyMesh.scale.set(0.4, 0.4, 0.4); // 少し小さく
+  
+  // 影をつける
+  enemyMesh.traverse((child: any) => { if (child.isMesh) child.castShadow = true; });
+  scene.add(enemyMesh);
+
+  // アニメーション設定
+  const mixer = new THREE.AnimationMixer(enemyMesh);
+  let actionName = type === 'patrol' ? 'Walking' : 'Running'; // パトロールは歩き、追跡は走り
+  const clip = THREE.AnimationClip.findByName(enemyResource.animations, actionName);
+  if (clip) {
+    const action = mixer.clipAction(clip);
+    action.play();
+  }
+
   enemies.push({ 
-    mesh, 
-    type: 'patrol', 
-    speed, 
+    mesh: enemyMesh, 
+    mixer: mixer,
+    type: type, 
+    speed: speed, 
     dead: false, 
+    deadTimer: 0,
     velocityY: 0,
     patrolAxis: axis,
-    patrolDir: 1 // 最初はプラス方向に進む
+    patrolDir: 1,
+    basePos: new THREE.Vector3(x, y, z)
   });
 }
 
-// 追跡敵（紫）：崖の手前で止まる
+function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) {
+  spawnEnemy(x, y, z, 'patrol', axis, speed);
+}
+
 function createChaserEnemy(x: number, y: number, z: number, speed: number) {
-  const geo = new THREE.ConeGeometry(0.3, 0.6, 8); 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xaa00ff, roughness: 0.3, emissive: 0x220044 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y + 0.3, z);
-  mesh.castShadow = true;
-  scene.add(mesh);
-  enemies.push({ mesh, type: 'chaser', speed, dead: false, velocityY: 0 });
+  spawnEnemy(x, y, z, 'chaser', undefined, speed);
 }
 
 function createCoin(x: number, y: number, z: number) {
@@ -174,8 +194,14 @@ function loadLevel(level: number) {
   player.rotation.set(0, 0, 0);
   velocityY = 0;
   
+  // 敵モデル読み込み待ち対策
+  if (!enemyResource) {
+    setTimeout(() => loadLevel(level), 500);
+    return;
+  }
+
   if (level === 1) {
-    showStory("【WORLD 1: はじまりの広場】<br>敵が賢くなったぞ。<br>勝手に落ちたりしなくなったようだ！");
+    showStory("【WORLD 1: ロボット軍団の襲来】<br>敵が「戦闘ロボット」に進化した！<br>倒すと爆発四散するぞ！");
     createPlatform(0, 0, 0, 10, 2, 10, 'stone');
     createPlatform(0, 0, -15, 8, 2, 8, 'wood');
     createChaserEnemy(0, 1.5, -15, 2.0); 
@@ -195,11 +221,11 @@ function loadLevel(level: number) {
     createGoal(0, 4.5, -35);
   
   } else if (level === 2) {
-    showStory("【WORLD 2: スカイ・アスレチック】<br>敵を落とすには、スピン攻撃が必要だ。<br>穴へ弾き飛ばせ！");
+    showStory("【WORLD 2: スカイ・アスレチック】<br>追跡ロボットから逃げ切れ。<br>崖際で急ブレーキをかけて落とせ！");
     createPlatform(0, 0, 0, 6, 2, 6, 'stone');
     
     createPlatform(8, 1, -8, 5, 1, 5, 'wood');
-    createChaserEnemy(8, 1.5, -8, 2.5); 
+    createChaserEnemy(8, 1.5, -8, 3.5); // 足速め
     createCoin(8, 2.5, -8);
     
     createPlatform(-8, 1, -8, 5, 1, 5, 'wood');
@@ -222,25 +248,25 @@ function loadLevel(level: number) {
     createGoal(0, 7.5, -40); 
   
   } else if (level === 3) {
-    showStory("【FINAL WORLD: 追跡者の巣窟】<br>奴らは落ちない。しつこく追ってくる。<br>生き残れ！");
+    showStory("【FINAL WORLD: メカニカル・ウォーズ】<br>ロボットだらけの最終決戦！<br>スピン攻撃で一掃しろ！");
     createPlatform(0, 0, 0, 8, 2, 8, 'stone');
     createPlatform(0, 1, -10, 4, 1, 4, 'wood');
     createChaserEnemy(0, 1.5, -10, 3.0); 
     createPlatform(8, 2, -10, 4, 1, 4, 'wood');
     createPlatform(8, 3, -20, 4, 1, 4, 'wood');
-    createChaserEnemy(8, 3.5, -20, 3.5);
+    createChaserEnemy(8, 3.5, -20, 4.0);
     createPlatform(0, 4, -20, 4, 1, 4, 'wood');
     createPlatform(0, 5, -35, 15, 2, 15, 'stone');
-    createChaserEnemy(-5, 6.5, -35, 2.5);
-    createChaserEnemy(5, 6.5, -35, 2.5);
-    createChaserEnemy(0, 6.5, -40, 2.5);
+    createChaserEnemy(-5, 6.5, -35, 3.0);
+    createChaserEnemy(5, 6.5, -35, 3.0);
+    createChaserEnemy(0, 6.5, -40, 3.0);
     createPatrolEnemy(0, 6.4, -35, 'x', 5.0); 
     createCoin(0, 7, -35);
     createCoin(3, 7, -35);
     createCoin(-3, 7, -35);
     createGoal(0, 6.5, -42);
   } else {
-    showStory(`【ALL CLEAR】<br>ワールド完全制覇！<br>獲得コイン: ${coinCount}枚<br>君は伝説のソルジャーだ！`);
+    showStory(`【ALL CLEAR】<br>全敵ロボット沈黙！<br>獲得コイン: ${coinCount}枚<br>任務完了だ！`);
     isGameActive = false;
     goalObj = undefined;
   }
@@ -263,12 +289,15 @@ const spinEffectMat = new THREE.MeshBasicMaterial({
 const spinMesh = new THREE.Mesh(spinEffectGeo, spinEffectMat);
 scene.add(spinMesh);
 
+// プレイヤーモデル
 let model: THREE.Group | undefined;
 let mixer: THREE.AnimationMixer | undefined;
 let actions: { [key: string]: THREE.AnimationAction } = {};
 let activeAction: THREE.AnimationAction | undefined;
 
 const loader = new GLTFLoader();
+
+// ★1. まずプレイヤー（Soldier）を読み込む
 loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
   model = gltf.scene;
   model.scale.set(1.5, 1.5, 1.5); 
@@ -284,7 +313,13 @@ loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
     activeAction = actions['Idle'];
     activeAction.play();
   }
-  loadLevel(currentLevel);
+
+  // ★2. 次に敵（RobotExpressive）を読み込む（入れ子構造）
+  loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (robotGltf) => {
+    enemyResource = robotGltf; // リソースとして保存
+    // 準備ができたらレベルロード
+    loadLevel(currentLevel);
+  });
 });
 
 function fadeToAction(name: string, duration: number) {
@@ -390,7 +425,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// --- 便利関数：ある位置に地面があるかチェック ---
 function isSafePosition(x: number, z: number): boolean {
   for (const p of staticPlatforms) {
     const w = p.geometry.parameters.width;
@@ -450,22 +484,52 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
-  // --- 敵の挙動 ---
+  // ★敵の処理：アニメーションと死亡演出
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
     
-    // ■ 重力処理
+    // アニメーション更新
+    if (enemy.mixer) enemy.mixer.update(delta);
+
+    // 死亡処理
+    if (enemy.dead) {
+      enemy.deadTimer += delta;
+      
+      // 1. 死亡アニメーションがなければ再生
+      // RobotExpressiveには 'Death' というアニメーションがある
+      const clip = THREE.AnimationClip.findByName(enemyResource.animations, 'Death');
+      if (clip) {
+        // 現在のアクションを止めてDeathを再生
+        // 簡易実装：既存のアクションを全部止めてDeathをPlay
+        // （本来はAction管理が必要だが、ここでは強制的に）
+        // mixer.stopAllAction() はThree.jsのバージョンによるので、
+        // 単純にclipActionしてplayする。
+        const action = enemy.mixer.clipAction(clip);
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.play();
+      }
+
+      // 2. しばらくしたら消える
+      if (enemy.deadTimer > 1.5) { // 1.5秒後に削除
+         scene.remove(enemy.mesh);
+         enemies.splice(i, 1);
+      }
+      continue; // 死んでる間は移動などの処理をスキップ
+    }
+
+    // --- 以下、生存時の処理 ---
+
+    // 重力
     let enemyGrounded = false;
     let groundY = -999;
     
-    // 静止床チェック
     for (const p of staticPlatforms) {
       if (checkOnPlatform(enemy.mesh, p)) {
         const top = p.position.y + p.geometry.parameters.height/2;
         if (top > groundY) groundY = top;
       }
     }
-    // 動く床チェック
     for (const mp of movingPlatforms) {
       if (checkOnPlatform(enemy.mesh, mp.mesh)) {
         const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2;
@@ -473,10 +537,11 @@ function update(time: number, delta: number) {
       }
     }
 
-    const enemyOffset = enemy.type === 'chaser' ? 0.3 : 0.4;
+    // 敵の足元オフセット（モデルに合わせて調整）
+    const enemyOffset = 0; // RobotExpressiveは原点が足元に近い
     
-    if (enemy.mesh.position.y - enemyOffset <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
-      enemy.mesh.position.y = groundY + enemyOffset;
+    if (enemy.mesh.position.y <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
+      enemy.mesh.position.y = groundY;
       enemy.velocityY = 0;
       enemyGrounded = true;
     } else {
@@ -485,37 +550,22 @@ function update(time: number, delta: number) {
       enemy.mesh.position.y += enemy.velocityY * timeScale;
     }
 
-    // 死亡して落下中ならここまで
-    if (enemy.dead) {
-       // 奈落へ落ちたら削除
-       if (enemy.mesh.position.y < -30) {
-         scene.remove(enemy.mesh);
-         enemies.splice(i, 1);
-       }
-       continue;
-    }
-
-    // ■ 移動AI (接地中のみ)
     if (enemyGrounded) {
       if (enemy.type === 'patrol') {
-        // 進行方向を決める
         const moveDist = enemy.speed * 0.03 * timeScale;
         const dir = enemy.patrolDir || 1;
         
-        // 次の地点を予測
         let nextX = enemy.mesh.position.x;
         let nextZ = enemy.mesh.position.z;
         if (enemy.patrolAxis === 'x') nextX += moveDist * dir;
         else nextZ += moveDist * dir;
 
-        // ★崖チェック：次の一歩が安全か？
         if (isSafePosition(nextX, nextZ)) {
-          // 安全なら進む
           enemy.mesh.position.x = nextX;
           enemy.mesh.position.z = nextZ;
-          enemy.mesh.rotation.y += 0.05 * timeScale;
+          // 進行方向を向く
+          enemy.mesh.lookAt(new THREE.Vector3(nextX, enemy.mesh.position.y, nextZ));
         } else {
-          // 危険なら引き返す
           enemy.patrolDir = dir * -1;
         }
 
@@ -529,12 +579,9 @@ function update(time: number, delta: number) {
           const moveStep = direction.multiplyScalar(enemy.speed * 0.03 * timeScale);
           const nextPos = enemy.mesh.position.clone().add(moveStep);
           
-          // ★崖チェック
           if (isSafePosition(nextPos.x, nextPos.z)) {
             enemy.mesh.position.add(moveStep);
           }
-          // 崖なら動かない（踏みとどまる）
-          
           enemy.mesh.lookAt(new THREE.Vector3(player.position.x, enemy.mesh.position.y, player.position.z));
         }
       }
@@ -548,15 +595,9 @@ function update(time: number, delta: number) {
     
     if (hDist < 1.0 && vDist < 1.5) {
       if (isSpinning) {
-        // 攻撃ヒット！吹き飛ばす
+        // 攻撃ヒット！
         enemy.dead = true;
-        enemy.velocityY = 0.5; // 上に跳ねる
-        
-        // プレイヤーの反対側へ少し飛ばす
-        const blowDir = new THREE.Vector3().subVectors(enemy.mesh.position, player.position).normalize();
-        blowDir.y = 0;
-        enemy.mesh.position.add(blowDir.multiplyScalar(2)); // ドン！と後ろへ
-        
+        // 死亡アニメーションへの切り替えは次フレームの先頭で行われる
       } else {
         gameOver();
       }
@@ -661,7 +702,7 @@ function update(time: number, delta: number) {
   }
 }
 
-function checkOnPlatform(obj: THREE.Mesh, platform: THREE.Mesh): boolean {
+function checkOnPlatform(obj: THREE.Mesh | THREE.Group, platform: THREE.Mesh): boolean {
   const w = platform.geometry.parameters.width;
   const d = platform.geometry.parameters.depth;
   return (
