@@ -99,7 +99,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
-// Bloom設定（光量調整済み）
+// Bloom設定（光量控えめ）
 const renderScene = new RenderPass(scene, camera);
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
 bloomPass.threshold = 0.5; 
@@ -424,7 +424,7 @@ window.addEventListener('keyup', (e) => {
 function shoot() {
   if (!isGameActive || isCinematic || isDashing) return;
   const now = performance.now();
-  if (now - lastShotTime < 200) return; // 連射速度
+  if (now - lastShotTime < 200) return; 
   lastShotTime = now;
 
   const bulletGeo = new THREE.CapsuleGeometry(0.1, 0.5, 4, 8);
@@ -433,7 +433,7 @@ function shoot() {
   
   bullet.position.copy(player.position).add(new THREE.Vector3(0, 0.8, 0));
   
-  // ★重要：弾の方向修正
+  // ★方向修正済み：(0,0,-1)
   const direction = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
   bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction); 
   
@@ -536,7 +536,7 @@ function update(time: number, delta: number) {
     (p.mesh.material as THREE.Material).opacity = p.life / p.maxLife;
   }
 
-  // 弾丸処理
+  // ★弾丸処理（判定修正版）
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.life -= delta;
@@ -553,8 +553,17 @@ function update(time: number, delta: number) {
       const enemy = enemies[j];
       if (enemy.dead) continue;
       
-      const hitRadius = enemy.type === 'boss' ? 2.5 : 1.0;
-      if (b.mesh.position.distanceTo(enemy.mesh.position) < hitRadius) {
+      // ★円柱判定（当たりやすくする）
+      const dx = b.mesh.position.x - enemy.mesh.position.x;
+      const dz = b.mesh.position.z - enemy.mesh.position.z;
+      const distXZ = Math.sqrt(dx*dx + dz*dz);
+      // 弾の高さ vs 敵の胴体高さ(足元〜頭)
+      const dy = Math.abs(b.mesh.position.y - (enemy.mesh.position.y + 0.8)); // 胴体を狙う
+
+      const hitRadius = enemy.type === 'boss' ? 2.5 : 1.5; // 少し広め
+      
+      // 水平距離ヒット かつ 高さもだいたい合ってる
+      if (distXZ < hitRadius && dy < 2.0) {
         scene.remove(b.mesh);
         bullets.splice(i, 1);
         hit = true;
@@ -567,7 +576,7 @@ function update(time: number, delta: number) {
              enemy.bossState = 'chase'; enemy.stateTimer = -2;
              if (enemy.hp <= 0) { enemy.dead = true; sfx.play('explosion'); }
           } else {
-             spawnParticles(b.mesh.position, 3, 'dust'); // 無効
+             spawnParticles(b.mesh.position, 3, 'dust'); 
           }
         } else {
           enemy.dead = true;
@@ -670,9 +679,12 @@ function update(time: number, delta: number) {
         } else if (enemy.bossState === 'attack') {
           if (enemy.stateTimer > 1.0) {
             enemy.bossState = 'stun'; enemy.stateTimer = 0; playEnemyAction(enemy, 'Idle', 0.2);
+            // ★チャンス通知
+            showSubtitle("CHANCE!! ATTACK NOW!");
           }
         } else if (enemy.bossState === 'stun') {
           if (enemy.stateTimer > 3.0) {
+            hideSubtitle(); // 字幕消す
             enemy.bossState = 'chase'; enemy.stateTimer = 0; playEnemyAction(enemy, 'Walking', 0.2);
           }
         }
@@ -692,7 +704,7 @@ function update(time: number, delta: number) {
              enemy.hp = (enemy.hp || 0) - 1; updateBossUI(enemy.hp, enemy.maxHp || 5);
              spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,2,0)), 15, 'explosion'); sfx.play('explosion');
              addShake(0.5); hitStopTimer = 0.1; playEnemyAction(enemy, 'No', 0.1);
-             enemy.bossState = 'chase'; enemy.stateTimer = -2;
+             enemy.bossState = 'chase'; enemy.stateTimer = -2; hideSubtitle();
              if (enemy.hp <= 0) { enemy.dead = true; sfx.play('explosion'); }
           }
         } else {
@@ -729,7 +741,7 @@ function update(time: number, delta: number) {
       if (runDustTimer > 0.2) { spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 1, 'dust'); runDustTimer = 0; }
     }
   } else if (isDashing) {
-    // ダッシュ（入力なしでも直進）
+    // ★ダッシュ方向修正済み
     const dir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
     player.position.add(dir.multiplyScalar(moveSpeed * timeScale));
   }
