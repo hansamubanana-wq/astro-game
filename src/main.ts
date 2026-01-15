@@ -9,6 +9,7 @@ let isGameActive = false;
 
 // --- 1. シーン初期化 ---
 const scene = new THREE.Scene();
+// ※背景色は後でテクスチャで上書きされます
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -17,10 +18,10 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // 少し暗めに
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5); // 強い光
 dirLight.position.set(20, 50, 20);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.width = 2048;
@@ -31,13 +32,16 @@ dirLight.shadow.camera.top = 50;
 dirLight.shadow.camera.bottom = -50;
 scene.add(dirLight);
 
+// ★テクスチャローダーの準備
 const textureLoader = new THREE.TextureLoader();
 
-// 背景（空）
+// ★背景（空）の作成
+// 巨大な球体に空の写真を内側から貼り付ける
 const skyGeo = new THREE.SphereGeometry(500, 32, 32);
 const skyMat = new THREE.MeshBasicMaterial({
+  // Three.jsのサンプルにある空の画像を使用
   map: textureLoader.load('https://threejs.org/examples/textures/2294472375_24a3b8ef46_o.jpg'),
-  side: THREE.BackSide
+  side: THREE.BackSide // 球体の内側に描画
 });
 const sky = new THREE.Mesh(skyGeo, skyMat);
 scene.add(sky);
@@ -48,8 +52,9 @@ let enemies: { mesh: THREE.Mesh, basePos: THREE.Vector3, axis: 'x'|'z', range: n
 let goalObj: THREE.Mesh | undefined;
 let goalPosition = new THREE.Vector3();
 
+// ★足場用の共通テクスチャ（木箱）を読み込み
 const crateTexture = textureLoader.load('https://threejs.org/examples/textures/crate.gif');
-crateTexture.colorSpace = THREE.SRGBColorSpace;
+crateTexture.colorSpace = THREE.SRGBColorSpace; // 色を正しく表示させる設定
 
 function clearStage() {
   platforms.forEach(p => scene.remove(p));
@@ -59,12 +64,14 @@ function clearStage() {
   enemies = [];
 }
 
+// 足場作成関数（色指定を廃止し、テクスチャを使用）
 function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number) {
   const geo = new THREE.BoxGeometry(w, h, d);
+  // ★マテリアルをテクスチャ貼付けに変更
   const mat = new THREE.MeshStandardMaterial({ 
-    map: crateTexture, 
-    roughness: 0.8,    
-    metalness: 0.1     
+    map: crateTexture, // 木箱の画像
+    roughness: 0.8,    // ザラザラ感
+    metalness: 0.1     // 金属感（少なめ）
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y - h / 2, z); 
@@ -76,6 +83,7 @@ function createPlatform(x: number, y: number, z: number, w: number, h: number, d
 
 function createEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
   const geo = new THREE.IcosahedronGeometry(0.4, 0); 
+  // 敵は少し金属光沢を持たせる
   const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, metalness: 0.7, emissive: 0x330000 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
@@ -94,15 +102,18 @@ function createGoal(x: number, y: number, z: number) {
   goalPosition.set(x, y, z);
 }
 
-// --- ステージデータ ---
+// --- ステージデータ（createPlatformの色引数を削除） ---
 function loadLevel(level: number) {
   clearStage();
   player.position.set(0, 2, 0);
   player.rotation.set(0, 0, 0);
   velocityY = 0;
   
+  // 背景の色変更は、空のテクスチャがあるので一旦廃止
+  // 将来的には空の画像自体を切り替えることも可能
+
   if (level === 1) {
-    showStory("【STAGE 1: 訓練場】<br>兵士よ、訓練開始だ。<br>この体でアスレチックを走破せよ！");
+    showStory("【STAGE 1: 訓練場】<br>リアルな世界へようこそ。<br>木箱の足場を乗り越えて進め！");
     createPlatform(0, 0, 0, 6, 2, 6);
     createPlatform(0, 0, -10, 4, 2, 10);
     createPlatform(0, 1, -20, 3, 1, 3);
@@ -111,7 +122,7 @@ function loadLevel(level: number) {
     createGoal(0, 4.5, -35);
   
   } else if (level === 2) {
-    showStory("【STAGE 2: 敵基地潜入】<br>赤いドローンを回避せよ。<br>人間離れした動きで突破するんだ。");
+    showStory("【STAGE 2: 敵基地潜入】<br>赤い警備ドローンを回避せよ。<br>影を利用して進むんだ。");
     createPlatform(0, 0, 0, 6, 2, 6);
     createPlatform(0, 0, -10, 3, 1, 8);
     createEnemy(0, 1.0, -10, 'z', 3, 2);
@@ -124,7 +135,7 @@ function loadLevel(level: number) {
     createGoal(0, 2.5, -45);
   
   } else if (level === 3) {
-    showStory("【FINAL STAGE: 天空の決戦】<br>これが最後の任務だ。<br>必ず生きて帰還せよ！");
+    showStory("【FINAL STAGE: 天空の決戦】<br>落ちたら終わりの高所ステージ。<br>慎重かつ大胆に！");
     createPlatform(0, 0, 0, 6, 2, 6);
     createPlatform(0, 0, -12, 2, 1, 2);
     createPlatform(3, 1, -15, 2, 1, 2);
@@ -137,7 +148,7 @@ function loadLevel(level: number) {
     createPlatform(0, 5, -50, 8, 2, 8);
     createGoal(0, 6.5, -50);
   } else {
-    showStory("【MISSION COMPLETE】<br>任務完了！<br>素晴らしい働きだった！");
+    showStory("【MISSION COMPLETE】<br>全ステージクリア！<br>美しいグラフィックの世界を制覇した！");
     isGameActive = false;
     goalObj = undefined;
   }
@@ -155,17 +166,14 @@ let actions: { [key: string]: THREE.AnimationAction } = {};
 let activeAction: THREE.AnimationAction | undefined;
 
 const loader = new GLTFLoader();
-// ★ここを変更：兵士（Soldier.glb）を読み込み
-loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
+loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
   model = gltf.scene;
-  // 兵士のサイズに合わせてスケール調整（1.5倍くらいが見やすい）
-  model.scale.set(1.5, 1.5, 1.5); 
+  model.scale.set(0.4, 0.4, 0.4); 
   model.traverse((child) => { if ((child as THREE.Mesh).isMesh) child.castShadow = true; });
   scene.add(model);
 
   mixer = new THREE.AnimationMixer(model);
-  // ★Soldierのアニメーション名は 'Idle', 'Run', 'Walk', 'TPose'
-  ['Idle', 'Run', 'Walk'].forEach(name => {
+  ['Idle', 'Running', 'Jump', 'Death'].forEach(name => {
     const clip = THREE.AnimationClip.findByName(gltf.animations, name);
     if (clip && mixer) actions[name] = mixer.clipAction(clip);
   });
@@ -177,16 +185,7 @@ loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
 });
 
 function fadeToAction(name: string, duration: number) {
-  // アニメーションがない場合（Jump/Deathなど）は無視、またはIdleにする
-  if (!actions[name]) {
-    // 代替処理：ジャンプや死亡のモーションがないので、RunやIdleで代用
-    if (name === 'Jump') name = 'Run'; 
-    else if (name === 'Death') name = 'Idle';
-    else return;
-  }
-  
-  if (activeAction === actions[name]) return;
-  
+  if (!actions[name] || activeAction === actions[name]) return;
   const previousAction = activeAction;
   activeAction = actions[name];
   if (previousAction) previousAction.fadeOut(duration);
@@ -279,6 +278,7 @@ function update(time: number) {
     const move = Math.sin(time * enemy.speed + enemy.offset) * enemy.range;
     if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
     else enemy.mesh.position.z = enemy.basePos.z + move;
+    
     enemy.mesh.rotation.x += 0.05;
     enemy.mesh.rotation.y += 0.05;
 
@@ -345,11 +345,9 @@ function update(time: number) {
     model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
     model.quaternion.slerp(q, 0.2);
-    // Soldierは'Run'で走る
     if (isGrounded) {
-      fadeToAction(isMoving ? 'Run' : 'Idle', 0.2);
+      fadeToAction(isMoving ? 'Running' : 'Idle', 0.2);
     } else {
-      // 空中は'Run'の姿勢で代用
       fadeToAction('Jump', 0.1);
     }
   }
@@ -360,6 +358,7 @@ function gameClear() {
   bigMessage.innerText = "STAGE CLEAR!";
   retryBtn.innerText = "NEXT STAGE";
   messageContainer.style.display = 'flex';
+  fadeToAction('Jump', 0.1);
 }
 
 function gameOver() {
@@ -367,6 +366,7 @@ function gameOver() {
   bigMessage.innerText = "GAME OVER";
   retryBtn.innerText = "RETRY";
   messageContainer.style.display = 'flex';
+  fadeToAction('Death', 0.1);
 }
 
 const clock = new THREE.Clock();
