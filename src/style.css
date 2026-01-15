@@ -1,6 +1,8 @@
 :root {
-  font-family: 'Arial Black', Impact, sans-serif;
+  /* 日本語がきれいに映るフォント設定に変更 */
+  font-family: 'Arial Black', Impact, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
   line-height: 1.5;
+  font-weight: 400;
 }
 
 body {
@@ -53,7 +55,6 @@ canvas {
   padding: 15px;
   box-sizing: border-box;
   color: #fff;
-  font-family: sans-serif;
   font-size: 16px;
   z-index: 50;
   pointer-events: auto;
@@ -62,7 +63,10 @@ canvas {
   justify-content: space-between;
 }
 
-#story-text { margin: 0; line-height: 1.4; }
+#story-text {
+  margin: 0;
+  line-height: 1.4;
+}
 
 #next-btn {
   align-self: flex-end;
@@ -72,6 +76,12 @@ canvas {
   padding: 5px 15px;
   cursor: pointer;
   font-weight: bold;
+  pointer-events: auto;
+}
+
+#next-btn:active {
+  background-color: #fff;
+  color: #000;
 }
 
 /* コイン表示 */
@@ -85,7 +95,43 @@ canvas {
   z-index: 20;
 }
 
-/* メッセージ画面 */
+/* ★ボスのHPバー（ここが重要！） */
+#boss-hud {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  text-align: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+#boss-name {
+  color: #ff0000;
+  font-size: 24px;
+  text-shadow: 2px 2px 0 #000;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+#boss-hp-bar {
+  width: 100%;
+  height: 20px;
+  background-color: #330000;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  overflow: hidden; /* はみ出し防止 */
+}
+
+#boss-hp-fill {
+  width: 100%;
+  height: 100%;
+  background-color: #ff0000;
+  transition: width 0.2s; /* 減るアニメーション */
+}
+
+/* メッセージ画面（クリア・ゲームオーバー） */
 #message-container {
   position: absolute;
   top: 0;
@@ -103,7 +149,11 @@ canvas {
   z-index: 100;
 }
 
-#big-message { font-size: 48px; margin-bottom: 20px; }
+#big-message {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
 #retry-btn {
   font-size: 24px;
   padding: 10px 30px;
@@ -113,31 +163,16 @@ canvas {
   border-radius: 5px;
   cursor: pointer;
   font-weight: bold;
-}
-
-/* アクションボタン共通設定 */
-.action-btn {
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  border: 2px solid white;
-  color: white;
-  font-weight: bold;
-  font-size: 14px;
   pointer-events: auto;
-  cursor: pointer;
-  z-index: 20;
-  touch-action: manipulation;
-  display: flex;
-  justify-content: center;
-  align-items: center;
 }
-.action-btn:active { transform: scale(0.95); }
 
-/* ジャンプボタン（右下） */
+#retry-btn:active {
+  transform: scale(0.95);
+  background-color: #ccc;
+}
+
+/* ジャンプボタン */
 #jump-btn {
-  /* class="action-btn" のスタイルも適用したいが、JS制御外なのでIDセレクタで書く */
   position: absolute;
   bottom: 80px;
   right: 40px;
@@ -148,12 +183,19 @@ canvas {
   background-color: rgba(255, 255, 255, 0.3);
   color: white;
   font-weight: bold;
+  font-size: 14px;
   pointer-events: auto;
   touch-action: manipulation;
+  cursor: pointer;
+  z-index: 20;
 }
-#jump-btn:active { background-color: rgba(255, 255, 255, 0.6); transform: scale(0.95); }
 
-/* 攻撃ボタン（ジャンプの左上） */
+#jump-btn:active {
+  background-color: rgba(255, 255, 255, 0.6);
+  transform: scale(0.95);
+}
+
+/* 攻撃ボタン */
 #attack-btn {
   position: absolute;
   bottom: 60px;
@@ -162,10 +204,17 @@ canvas {
   height: 70px;
   border-radius: 50%;
   border: 2px solid white;
-  background-color: rgba(255, 50, 50, 0.5); /* 赤っぽい色 */
+  background-color: rgba(255, 50, 50, 0.5);
   color: white;
   font-weight: bold;
+  font-size: 12px;
   pointer-events: auto;
   touch-action: manipulation;
+  cursor: pointer;
+  z-index: 20;
 }
-#attack-btn:active { background-color: rgba(255, 50, 50, 0.8); transform: scale(0.95); }
+
+#attack-btn:active {
+  background-color: rgba(255, 50, 50, 0.8);
+  transform: scale(0.95);
+}

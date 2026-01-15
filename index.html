@@ -1,21 +1,20 @@
-<!doctype html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>3D Action Game</title>
-  </head>
 <body>
     <div id="ui-layer">
       <div id="joystick-zone"></div>
 
       <div id="story-box" style="display: none;">
-        <p id="story-text">ここにストーリーが表示されます...</p>
+        <p id="story-text">...</p>
         <button id="next-btn">▼</button>
       </div>
 
       <div id="coin-counter">🪙 0</div>
+
+      <div id="boss-hud" style="display: none;">
+        <div id="boss-name">GIANT ROBOT</div>
+        <div id="boss-hp-bar">
+          <div id="boss-hp-fill"></div>
+        </div>
+      </div>
 
       <div id="message-container" style="display: none;">
         <h1 id="big-message">GAME CLEAR!</h1>
@@ -28,4 +27,3 @@
     
     <script type="module" src="/src/main.ts"></script>
   </body>
-</html>

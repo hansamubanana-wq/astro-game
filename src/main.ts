@@ -10,9 +10,9 @@ let coinCount = 0;
 let isSpinning = false; 
 
 // --- 演出用変数 ---
-let shakeIntensity = 0; // 画面の揺れ
-let hitStopTimer = 0;   // ヒットストップ（一瞬止まる）
-let runDustTimer = 0;   // 土煙のタイミング管理
+let shakeIntensity = 0; 
+let hitStopTimer = 0;   
+let runDustTimer = 0;   
 
 // --- 1. シーン初期化 ---
 const scene = new THREE.Scene();
@@ -56,62 +56,46 @@ stoneTexture.wrapT = THREE.RepeatWrapping;
 interface Particle {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
-  life: number; // 寿命
+  life: number;
   maxLife: number;
 }
 let particles: Particle[] = [];
-// 共通ジオメトリ（使い回して軽量化）
 const particleGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
 const particleMatCoin = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 const particleMatExplosion = new THREE.MeshBasicMaterial({ color: 0xff4400 });
 const particleMatDust = new THREE.MeshBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0.6 });
+const particleMatShockwave = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
 
-function spawnParticles(pos: THREE.Vector3, count: number, type: 'coin'|'explosion'|'dust') {
+function spawnParticles(pos: THREE.Vector3, count: number, type: 'coin'|'explosion'|'dust'|'shockwave') {
   let mat = particleMatCoin;
   let speed = 0.1;
   let life = 0.5;
 
-  if (type === 'explosion') {
-    mat = particleMatExplosion;
-    speed = 0.3;
-    life = 0.8;
-  } else if (type === 'dust') {
-    mat = particleMatDust;
-    speed = 0.05;
-    life = 0.4;
-  }
+  if (type === 'explosion') { mat = particleMatExplosion; speed = 0.3; life = 0.8; }
+  else if (type === 'dust') { mat = particleMatDust; speed = 0.05; life = 0.4; }
+  else if (type === 'shockwave') { mat = particleMatShockwave; speed = 0.4; life = 0.5; }
 
   for (let i = 0; i < count; i++) {
-    const mesh = new THREE.Mesh(particleGeo, mat.clone()); // Opacity変えるためClone
-    // 位置のバラつき
-    mesh.position.copy(pos).add(new THREE.Vector3(
-      (Math.random() - 0.5) * 0.5,
-      (Math.random() - 0.5) * 0.5,
-      (Math.random() - 0.5) * 0.5
-    ));
-    // 飛び散る方向
+    const mesh = new THREE.Mesh(particleGeo, mat.clone());
+    mesh.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5));
     const velocity = new THREE.Vector3(
-      (Math.random() - 0.5) * speed,
-      (Math.random() - 0.5) * speed + (type === 'dust' ? 0.05 : 0.2), // 上に跳ねる
-      (Math.random() - 0.5) * speed
+      (Math.random()-0.5)*speed,
+      (Math.random()-0.5)*speed + (type==='dust'?0.05:0.2), 
+      (Math.random()-0.5)*speed
     );
-    
+    if (type === 'shockwave') {
+      // 地面を這う衝撃波
+      velocity.y = 0;
+      velocity.x *= 2;
+      velocity.z *= 2;
+    }
     scene.add(mesh);
     particles.push({ mesh, velocity, life, maxLife: life });
   }
 }
 
-// 画面揺らし
-function addShake(amount: number) {
-  shakeIntensity = amount;
-}
-
-// スマホ振動
-function vibrate(ms: number) {
-  if (navigator.vibrate) {
-    navigator.vibrate(ms);
-  }
-}
+function addShake(amount: number) { shakeIntensity = amount; }
+function vibrate(ms: number) { if (navigator.vibrate) navigator.vibrate(ms); }
 
 // --- オブジェクト管理 ---
 interface MovingPlatform {
@@ -125,7 +109,7 @@ interface MovingPlatform {
 interface Enemy {
   mesh: THREE.Group; 
   mixer: THREE.AnimationMixer; 
-  type: 'patrol' | 'chaser'; 
+  type: 'patrol' | 'chaser' | 'boss'; 
   speed: number;
   dead: boolean;
   deadTimer: number; 
@@ -133,6 +117,11 @@ interface Enemy {
   patrolAxis?: 'x' | 'z'; 
   patrolDir?: number;
   basePos: THREE.Vector3;
+  // ★ボス用
+  hp?: number;
+  maxHp?: number;
+  bossState?: 'chase' | 'prepare' | 'attack' | 'stun';
+  stateTimer?: number;
 }
 
 let movingPlatforms: MovingPlatform[] = [];
@@ -158,16 +147,16 @@ function clearStage() {
   enemies = [];
   coins = [];
   particles = [];
+  
+  // ボスUI隠す
+  document.getElementById('boss-hud')!.style.display = 'none';
 }
 
 function createPlatform(x: number, y: number, z: number, w: number, h: number, d: number, type: 'wood'|'stone' = 'wood') {
   const geo = new THREE.BoxGeometry(w, h, d);
   let mat;
-  if (type === 'wood') {
-    mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
-  } else {
-    mat = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.5, color: 0x888888 });
-  }
+  if (type === 'wood') mat = new THREE.MeshStandardMaterial({ map: crateTexture, roughness: 0.8 });
+  else mat = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.5, color: 0x888888 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y - h / 2, z); 
   mesh.castShadow = true;
@@ -187,32 +176,46 @@ function createMovingPlatform(x: number, y: number, z: number, w: number, h: num
   movingPlatforms.push({ mesh, basePos: new THREE.Vector3(x, y - h/2, z), axis, range, speed, offset: 0 });
 }
 
-function spawnEnemy(x: number, y: number, z: number, type: 'patrol'|'chaser', axis: 'x'|'z'|undefined, speed: number) {
+function spawnEnemy(x: number, y: number, z: number, type: 'patrol'|'chaser'|'boss', axis: 'x'|'z'|undefined, speed: number) {
   if (!enemyResource) return;
   const enemyMesh = enemyResource.scene.clone();
   enemyMesh.position.set(x, y, z);
-  enemyMesh.scale.set(0.4, 0.4, 0.4); 
+  
+  // サイズと影
+  if (type === 'boss') {
+    enemyMesh.scale.set(1.2, 1.2, 1.2); // 3倍 (元の0.4 * 3 = 1.2)
+  } else {
+    enemyMesh.scale.set(0.4, 0.4, 0.4); 
+  }
+  
   enemyMesh.traverse((child: any) => { if (child.isMesh) child.castShadow = true; });
   scene.add(enemyMesh);
 
   const mixer = new THREE.AnimationMixer(enemyMesh);
-  let actionName = type === 'patrol' ? 'Walking' : 'Running'; 
+  let actionName = 'Walking';
+  if (type === 'chaser') actionName = 'Running';
+  if (type === 'boss') actionName = 'Walking'; // ボスは歩いて迫る
+
   const clip = THREE.AnimationClip.findByName(enemyResource.animations, actionName);
   if (clip) mixer.clipAction(clip).play();
 
   enemies.push({ 
     mesh: enemyMesh, mixer: mixer, type: type, speed: speed, 
     dead: false, deadTimer: 0, velocityY: 0, 
-    patrolAxis: axis, patrolDir: 1, basePos: new THREE.Vector3(x, y, z)
+    patrolAxis: axis, patrolDir: 1, basePos: new THREE.Vector3(x, y, z),
+    // ボス初期化
+    hp: 3, maxHp: 3, bossState: 'chase', stateTimer: 0
   });
+
+  if (type === 'boss') {
+    updateBossUI(3, 3);
+    document.getElementById('boss-hud')!.style.display = 'block';
+  }
 }
 
-function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) {
-  spawnEnemy(x, y, z, 'patrol', axis, speed);
-}
-function createChaserEnemy(x: number, y: number, z: number, speed: number) {
-  spawnEnemy(x, y, z, 'chaser', undefined, speed);
-}
+function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) { spawnEnemy(x, y, z, 'patrol', axis, speed); }
+function createChaserEnemy(x: number, y: number, z: number, speed: number) { spawnEnemy(x, y, z, 'chaser', undefined, speed); }
+function createBoss(x: number, y: number, z: number) { spawnEnemy(x, y, z, 'boss', undefined, 1.5); }
 
 function createCoin(x: number, y: number, z: number) {
   const geo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
@@ -235,6 +238,11 @@ function createGoal(x: number, y: number, z: number) {
   goalPosition.set(x, y, z);
 }
 
+function updateBossUI(hp: number, max: number) {
+  const fill = document.getElementById('boss-hp-fill');
+  if (fill) fill.style.width = `${(hp / max) * 100}%`;
+}
+
 // --- ステージデータ ---
 function loadLevel(level: number) {
   clearStage();
@@ -245,7 +253,7 @@ function loadLevel(level: number) {
   if (!enemyResource) { setTimeout(() => loadLevel(level), 500); return; }
 
   if (level === 1) {
-    showStory("【WORLD 1: はじまりの広場】<br>攻撃時の「振動」と「爆発」を感じろ！<br>走ると土煙もあがるぞ！");
+    showStory("【WORLD 1: はじまりの広場】<br>まずは基本のおさらいだ。<br>スピンで敵を倒して進め！");
     createPlatform(0, 0, 0, 10, 2, 10, 'stone');
     createPlatform(0, 0, -15, 8, 2, 8, 'wood');
     createChaserEnemy(0, 1.5, -15, 2.0); 
@@ -260,14 +268,12 @@ function loadLevel(level: number) {
     createGoal(0, 4.5, -35);
   
   } else if (level === 2) {
-    showStory("【WORLD 2: スカイ・アスレチック】<br>攻撃を当てると一瞬止まる「ヒットストップ」<br>これが気持ちよさの秘訣だ！");
+    showStory("【WORLD 2: スカイ・アスレチック】<br>落ちたら即死の危険地帯。<br>慎重に進め！");
     createPlatform(0, 0, 0, 6, 2, 6, 'stone');
     createPlatform(8, 1, -8, 5, 1, 5, 'wood');
-    createChaserEnemy(8, 1.5, -8, 3.5); 
-    createCoin(8, 2.5, -8);
+    createChaserEnemy(8, 1.5, -8, 3.5); createCoin(8, 2.5, -8);
     createPlatform(-8, 1, -8, 5, 1, 5, 'wood');
-    createPatrolEnemy(-8, 1.9, -8, 'x', 2.0);
-    createCoin(-8, 2.5, -8);
+    createPatrolEnemy(-8, 1.9, -8, 'x', 2.0); createCoin(-8, 2.5, -8);
     createPlatform(0, 2, -16, 10, 1, 6, 'stone');
     createChaserEnemy(-3, 2.5, -16, 2.0);
     createChaserEnemy(3, 2.5, -16, 2.0); 
@@ -279,23 +285,17 @@ function loadLevel(level: number) {
     createGoal(0, 7.5, -40); 
   
   } else if (level === 3) {
-    showStory("【FINAL WORLD: メカニカル・ウォーズ】<br>ド派手に暴れまわれ！<br>君のスマホが震えまくる！");
-    createPlatform(0, 0, 0, 8, 2, 8, 'stone');
-    createPlatform(0, 1, -10, 4, 1, 4, 'wood');
-    createChaserEnemy(0, 1.5, -10, 3.0); 
-    createPlatform(8, 2, -10, 4, 1, 4, 'wood');
-    createPlatform(8, 3, -20, 4, 1, 4, 'wood');
-    createChaserEnemy(8, 3.5, -20, 4.0);
-    createPlatform(0, 4, -20, 4, 1, 4, 'wood');
-    createPlatform(0, 5, -35, 15, 2, 15, 'stone');
-    createChaserEnemy(-5, 6.5, -35, 3.0);
-    createChaserEnemy(5, 6.5, -35, 3.0);
-    createChaserEnemy(0, 6.5, -40, 3.0);
-    createPatrolEnemy(0, 6.4, -35, 'x', 5.0); 
-    createCoin(0, 7, -35); createCoin(3, 7, -35); createCoin(-3, 7, -35);
-    createGoal(0, 6.5, -42);
+    showStory("【FINAL BOSS: 巨大ロボット】<br>ボスが現れた！<br>ジャンプ衝撃波を避けて、隙を見て攻撃だ！");
+    createPlatform(0, 0, 0, 10, 2, 10, 'stone');
+    createPlatform(0, 0, -15, 20, 2, 20, 'stone'); // ボスエリア
+    createBoss(0, 1.5, -15);
+    createGoal(0, 1.5, -30); // ボス裏にゴール
+    
+    // 回復コイン
+    createCoin(-5, 1.5, -15);
+    createCoin(5, 1.5, -15);
   } else {
-    showStory(`【ALL CLEAR】<br>全クリ達成！<br>獲得コイン: ${coinCount}枚<br>この爽快感、忘れるな！`);
+    showStory(`【ALL CLEAR】<br>世界は救われた！<br>獲得コイン: ${coinCount}枚`);
     isGameActive = false;
     goalObj = undefined;
   }
@@ -308,9 +308,7 @@ const player = new THREE.Mesh(playerGeometry, playerMaterial);
 scene.add(player);
 
 const spinEffectGeo = new THREE.CylinderGeometry(1, 0.1, 1.5, 16, 2, true);
-const spinEffectMat = new THREE.MeshBasicMaterial({ 
-  color: 0x00ffff, transparent: true, opacity: 0.0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending 
-});
+const spinEffectMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
 const spinMesh = new THREE.Mesh(spinEffectGeo, spinEffectMat);
 scene.add(spinMesh);
 
@@ -325,16 +323,12 @@ loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
   model.scale.set(1.5, 1.5, 1.5); 
   model.traverse((child) => { if ((child as THREE.Mesh).isMesh) child.castShadow = true; });
   scene.add(model);
-
   mixer = new THREE.AnimationMixer(model);
   ['Idle', 'Run', 'Walk'].forEach(name => {
     const clip = THREE.AnimationClip.findByName(gltf.animations, name);
     if (clip && mixer) actions[name] = mixer.clipAction(clip);
   });
-  if (actions['Idle']) {
-    activeAction = actions['Idle'];
-    activeAction.play();
-  }
+  if (actions['Idle']) { activeAction = actions['Idle']; activeAction.play(); }
 
   loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (robotGltf) => {
     enemyResource = robotGltf; 
@@ -343,16 +337,21 @@ loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', (gltf) => {
 });
 
 function fadeToAction(name: string, duration: number) {
-  if (!actions[name]) {
-    if (name === 'Jump') name = 'Run'; 
-    else if (name === 'Spin') name = 'Run'; 
-    else return;
-  }
+  if (!actions[name]) { if (name === 'Jump') name = 'Run'; else if (name === 'Spin') name = 'Run'; else return; }
   if (activeAction === actions[name]) return;
   const previousAction = activeAction;
   activeAction = actions[name];
   if (previousAction) previousAction.fadeOut(duration);
   activeAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(duration).play();
+}
+
+function playEnemyAction(enemy: Enemy, actionName: string, duration: number = 0.2) {
+  const clip = THREE.AnimationClip.findByName(enemyResource.animations, actionName);
+  if (clip) {
+    const action = enemy.mixer.clipAction(clip);
+    action.reset().fadeIn(duration).play();
+    // 他のアクションを止める簡易処理は省略（重ねがけ許容）
+  }
 }
 
 // --- UI ---
@@ -393,8 +392,8 @@ function attack(pressed: boolean) {
   if (pressed && !isSpinning) {
     isSpinning = true;
     spinEffectMat.opacity = 0.6;
-    addShake(0.2); // 攻撃時にも少し揺らす
-    vibrate(30);   // 攻撃時に軽く振動
+    addShake(0.2); 
+    vibrate(30);   
     setTimeout(() => { isSpinning = false; spinEffectMat.opacity = 0.0; }, 500);
   }
 }
@@ -445,55 +444,37 @@ let isGrounded = true;
 
 function update(time: number, delta: number) {
   if (!isGameActive) return;
-
-  // ★ヒットストップ処理（時間が止まる）
-  if (hitStopTimer > 0) {
-    hitStopTimer -= delta;
-    return; // 動きを更新しない
-  }
+  if (hitStopTimer > 0) { hitStopTimer -= delta; return; }
 
   const timeScale = delta * 60; 
 
-  // ★画面シェイク処理
   if (shakeIntensity > 0) {
     camera.position.x += (Math.random() - 0.5) * shakeIntensity;
     camera.position.y += (Math.random() - 0.5) * shakeIntensity;
     camera.position.z += (Math.random() - 0.5) * shakeIntensity;
-    shakeIntensity *= 0.9; // 減衰
+    shakeIntensity *= 0.9;
     if (shakeIntensity < 0.01) shakeIntensity = 0;
   }
 
-  // パーティクル更新
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= delta;
-    if (p.life <= 0) {
-      scene.remove(p.mesh);
-      particles.splice(i, 1);
-      continue;
-    }
+    if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); continue; }
     p.mesh.position.add(p.velocity.clone().multiplyScalar(timeScale));
-    p.mesh.rotation.x += 0.1;
-    p.mesh.rotation.y += 0.1;
-    // フェードアウト
+    p.mesh.rotation.x += 0.1; p.mesh.rotation.y += 0.1;
     (p.mesh.material as THREE.Material).opacity = p.life / p.maxLife;
   }
 
   if (goalObj) { goalObj.rotation.y += 0.02 * timeScale; goalObj.rotation.x += 0.01 * timeScale; }
 
-  // コイン取得演出
   for (let i = coins.length - 1; i >= 0; i--) {
     const c = coins[i];
     c.rotation.y += 0.05 * timeScale;
     const dx = player.position.x - c.position.x;
     const dz = player.position.z - c.position.z;
     if (Math.sqrt(dx*dx + dz*dz) < 1.5 && Math.abs(player.position.y - c.position.y) < 2.0) {
-      spawnParticles(c.position, 8, 'coin'); // ★パーティクル発生
-      vibrate(50); // ★振動
-      scene.remove(c);
-      coins.splice(i, 1);
-      coinCount++;
-      updateCoinDisplay();
+      spawnParticles(c.position, 8, 'coin'); vibrate(50);
+      scene.remove(c); coins.splice(i, 1); coinCount++; updateCoinDisplay();
     }
   }
 
@@ -504,6 +485,7 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
+  // --- 敵の処理（ボスロジック含む） ---
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
     if (enemy.mixer) enemy.mixer.update(delta);
@@ -511,61 +493,39 @@ function update(time: number, delta: number) {
     if (enemy.dead) {
       enemy.deadTimer += delta;
       const clip = THREE.AnimationClip.findByName(enemyResource.animations, 'Death');
-      if (clip) {
-        const action = enemy.mixer.clipAction(clip);
-        action.setLoop(THREE.LoopOnce, 1);
-        action.clampWhenFinished = true;
-        action.play();
-      }
+      if (clip) { const action = enemy.mixer.clipAction(clip); action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play(); }
       if (enemy.deadTimer > 1.5) { scene.remove(enemy.mesh); enemies.splice(i, 1); }
       continue;
     }
 
+    // 地面判定
     let enemyGrounded = false;
     let groundY = -999;
-    
     for (const p of staticPlatforms) {
-      if (checkOnPlatform(enemy.mesh, p)) {
-        const top = p.position.y + p.geometry.parameters.height/2;
-        if (top > groundY) groundY = top;
-      }
+      if (checkOnPlatform(enemy.mesh, p)) { const top = p.position.y + p.geometry.parameters.height/2; if (top > groundY) groundY = top; }
     }
     for (const mp of movingPlatforms) {
-      if (checkOnPlatform(enemy.mesh, mp.mesh)) {
-        const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2;
-        if (top > groundY) groundY = top;
-      }
+      if (checkOnPlatform(enemy.mesh, mp.mesh)) { const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2; if (top > groundY) groundY = top; }
     }
 
-    const enemyOffset = 0;
-    
     if (enemy.mesh.position.y <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
-      enemy.mesh.position.y = groundY;
-      enemy.velocityY = 0;
-      enemyGrounded = true;
+      enemy.mesh.position.y = groundY; enemy.velocityY = 0; enemyGrounded = true;
     } else {
-      enemyGrounded = false;
-      enemy.velocityY -= gravity * timeScale;
-      enemy.mesh.position.y += enemy.velocityY * timeScale;
+      enemyGrounded = false; enemy.velocityY -= gravity * timeScale; enemy.mesh.position.y += enemy.velocityY * timeScale;
     }
 
+    // AI
     if (enemyGrounded) {
       if (enemy.type === 'patrol') {
         const moveDist = enemy.speed * 0.03 * timeScale;
         const dir = enemy.patrolDir || 1;
-        let nextX = enemy.mesh.position.x;
-        let nextZ = enemy.mesh.position.z;
-        if (enemy.patrolAxis === 'x') nextX += moveDist * dir;
-        else nextZ += moveDist * dir;
-
+        let nextX = enemy.mesh.position.x; let nextZ = enemy.mesh.position.z;
+        if (enemy.patrolAxis === 'x') nextX += moveDist * dir; else nextZ += moveDist * dir;
         if (isSafePosition(nextX, nextZ)) {
-          enemy.mesh.position.x = nextX;
-          enemy.mesh.position.z = nextZ;
+          enemy.mesh.position.x = nextX; enemy.mesh.position.z = nextZ;
           enemy.mesh.lookAt(new THREE.Vector3(nextX, enemy.mesh.position.y, nextZ));
-        } else {
-          enemy.patrolDir = dir * -1;
-        }
-
+        } else enemy.patrolDir = dir * -1;
+      
       } else if (enemy.type === 'chaser') {
         const dist = player.position.distanceTo(enemy.mesh.position);
         if (dist < 15 && dist > 0.5) {
@@ -576,26 +536,111 @@ function update(time: number, delta: number) {
           if (isSafePosition(nextPos.x, nextPos.z)) enemy.mesh.position.add(moveStep);
           enemy.mesh.lookAt(new THREE.Vector3(player.position.x, enemy.mesh.position.y, player.position.z));
         }
+
+      } else if (enemy.type === 'boss') {
+        // ★ボスAI
+        if (!enemy.stateTimer) enemy.stateTimer = 0;
+        enemy.stateTimer += delta;
+        const dist = player.position.distanceTo(enemy.mesh.position);
+
+        if (enemy.bossState === 'chase') {
+          // ゆっくり近づく
+          if (dist > 3) {
+            const direction = new THREE.Vector3().subVectors(player.position, enemy.mesh.position).normalize();
+            direction.y = 0; direction.normalize();
+            enemy.mesh.position.add(direction.multiplyScalar(enemy.speed * 0.02 * timeScale)); // 遅め
+            enemy.mesh.lookAt(new THREE.Vector3(player.position.x, enemy.mesh.position.y, player.position.z));
+            // 歩行アニメ
+            // playEnemyAction(enemy, 'Walking'); // 常に再生されてるのでOK
+          }
+          if (enemy.stateTimer > 4) { // 4秒ごとに攻撃準備
+            enemy.bossState = 'prepare';
+            enemy.stateTimer = 0;
+            // ジャンプモーション
+            playEnemyAction(enemy, 'Jump', 0.1);
+            enemy.velocityY = 0.6; // ジャンプ
+            enemyGrounded = false;
+          }
+
+        } else if (enemy.bossState === 'prepare') {
+          // 空中
+          if (enemyGrounded && enemy.stateTimer > 0.5) {
+             // 着地！攻撃！
+             enemy.bossState = 'attack';
+             enemy.stateTimer = 0;
+             spawnParticles(enemy.mesh.position, 20, 'shockwave');
+             addShake(1.0);
+             vibrate(200);
+
+             // プレイヤーが接地してたらダメージ
+             if (isGrounded) {
+               gameOver();
+             }
+          }
+        } else if (enemy.bossState === 'attack') {
+          // 攻撃後の隙
+          if (enemy.stateTimer > 1.0) {
+            enemy.bossState = 'stun'; // 疲れる
+            enemy.stateTimer = 0;
+            playEnemyAction(enemy, 'Idle', 0.2); // 棒立ち
+          }
+        } else if (enemy.bossState === 'stun') {
+          // 攻撃チャンス
+          if (enemy.stateTimer > 3.0) {
+            enemy.bossState = 'chase';
+            enemy.stateTimer = 0;
+            playEnemyAction(enemy, 'Walking', 0.2);
+          }
+        }
       }
     }
 
+    // 衝突判定
     const dx = player.position.x - enemy.mesh.position.x;
     const dz = player.position.z - enemy.mesh.position.z;
     const hDist = Math.sqrt(dx*dx + dz*dz);
     const vDist = Math.abs(player.position.y - enemy.mesh.position.y);
     
-    if (hDist < 1.0 && vDist < 1.5) {
+    // ボスの当たり判定はデカい
+    const hitRadius = enemy.type === 'boss' ? 2.5 : 1.0;
+
+    if (hDist < hitRadius && vDist < 2.5) {
       if (isSpinning) {
-        enemy.dead = true;
-        // ★ヒット演出
-        spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)), 15, 'explosion');
-        addShake(0.5); // 強烈なシェイク
-        vibrate(100);  // 強烈な振動
-        hitStopTimer = 0.1; // 0.1秒時を止める（ヒットストップ）
+        if (enemy.type === 'boss') {
+          if (enemy.bossState === 'stun') {
+            // ボスにダメージ
+            if (!enemy.dead) { // 無敵時間代わりにdeadフラグを一瞬使う手もあるが、今回はヒットストップでごまかす
+               enemy.hp = (enemy.hp || 0) - 1;
+               updateBossUI(enemy.hp, enemy.maxHp || 3);
+               spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,2,0)), 15, 'explosion');
+               addShake(0.5); hitStopTimer = 0.2;
+               // 吹き飛びアニメ（No）
+               playEnemyAction(enemy, 'No', 0.1);
+               // 即座に復帰
+               enemy.bossState = 'chase'; enemy.stateTimer = -2; // 少し無敵
+
+               if (enemy.hp <= 0) {
+                 enemy.dead = true;
+               }
+            }
+          }
+        } else {
+          // 雑魚は即死
+          enemy.dead = true;
+          spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 15, 'explosion');
+          addShake(0.5); vibrate(100); hitStopTimer = 0.1;
+        }
       } else {
-        addShake(0.8); // 死亡時もシェイク
-        vibrate(500);
-        gameOver();
+        // プレイヤーがダメージ
+        if (enemy.type === 'boss') {
+          // ボスに触れるだけで死ぬのは理不尽なので、attack中のみ判定...したいが、今回は接触=死とする
+          // ただしstun中は安全
+          if (enemy.bossState !== 'stun') {
+             addShake(0.8); vibrate(500); gameOver();
+          }
+        } else {
+          addShake(0.8); vibrate(500); gameOver();
+        }
       }
     }
   }
@@ -609,96 +654,50 @@ function update(time: number, delta: number) {
   } else if (!joystickManager.get(0)) { /* nop */ }
 
   const isMoving = input.x !== 0 || input.z !== 0;
-  
   if (isMoving) {
     player.position.x += input.x * speed * timeScale;
     player.position.z += input.z * speed * timeScale;
     player.rotation.y = Math.atan2(input.x, input.z) + Math.PI;
-    
-    // ★走ると土煙
     if (isGrounded) {
       runDustTimer += delta;
-      if (runDustTimer > 0.2) { // 0.2秒ごとに発生
-        spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 1, 'dust');
-        runDustTimer = 0;
-      }
+      if (runDustTimer > 0.2) { spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 1, 'dust'); runDustTimer = 0; }
     }
   }
   
   let groundY = -999;
   let onMovingPlatform: MovingPlatform | null = null;
-  for (const p of staticPlatforms) {
-    if (checkOnPlatform(player, p)) {
-      const top = p.position.y + p.geometry.parameters.height/2;
-      if (top > groundY) groundY = top;
-    }
-  }
-  for (const mp of movingPlatforms) {
-    if (checkOnPlatform(player, mp.mesh)) {
-      const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2;
-      if (top > groundY) { groundY = top; onMovingPlatform = mp; }
-    }
-  }
+  for (const p of staticPlatforms) { if (checkOnPlatform(player, p)) { const top = p.position.y + p.geometry.parameters.height/2; if (top > groundY) groundY = top; } }
+  for (const mp of movingPlatforms) { if (checkOnPlatform(player, mp.mesh)) { const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2; if (top > groundY) { groundY = top; onMovingPlatform = mp; } } }
 
   const pBottom = player.position.y - 0.5;
   if (pBottom <= groundY + 0.1 && velocityY <= 0 && groundY > -100) {
-    player.position.y = groundY + 0.5;
-    velocityY = 0;
-    isGrounded = true;
+    player.position.y = groundY + 0.5; velocityY = 0; isGrounded = true;
     if (onMovingPlatform) {
       const velocity = Math.cos(time * onMovingPlatform.speed + onMovingPlatform.offset) * onMovingPlatform.range * onMovingPlatform.speed * delta;
-      if (onMovingPlatform.axis === 'x') player.position.x += velocity;
-      else if (onMovingPlatform.axis === 'z') player.position.z += velocity;
+      if (onMovingPlatform.axis === 'x') player.position.x += velocity; else if (onMovingPlatform.axis === 'z') player.position.z += velocity;
     }
-  } else {
-    isGrounded = false;
-  }
+  } else isGrounded = false;
 
-  if (jumpPressed && isGrounded) {
-    velocityY = jumpPower;
-    isGrounded = false;
-    spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 3, 'dust'); // ジャンプ時も土煙
-    fadeToAction('Jump', 0.1);
-  }
-
-  if (!isGrounded) {
-    velocityY -= gravity * timeScale;
-    player.position.y += velocityY * timeScale;
-  }
-
+  if (jumpPressed && isGrounded) { velocityY = jumpPower; isGrounded = false; spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 3, 'dust'); fadeToAction('Jump', 0.1); }
+  if (!isGrounded) { velocityY -= gravity * timeScale; player.position.y += velocityY * timeScale; }
   if (player.position.y < -10) gameOver();
   if (goalObj && player.position.distanceTo(goalPosition) < 1.5) gameClear();
 
-  if (isSpinning) {
-    spinMesh.position.copy(player.position);
-    spinMesh.rotation.y += 0.5 * timeScale;
-  } else {
-    spinMesh.position.copy(player.position);
-  }
+  if (isSpinning) { spinMesh.position.copy(player.position); spinMesh.rotation.y += 0.5 * timeScale; } else spinMesh.position.copy(player.position);
 
   if (model) {
-    model.position.copy(player.position);
-    model.position.y -= 0.5;
+    model.position.copy(player.position); model.position.y -= 0.5;
     const q = new THREE.Quaternion().setFromEuler(player.rotation);
     model.quaternion.slerp(q, 0.2 * timeScale); 
-    
-    // ★カメラを少し揺らして追従
     const shakeX = (Math.random()-0.5) * shakeIntensity;
     const shakeY = (Math.random()-0.5) * shakeIntensity;
-    
-    // カメラ追従処理（ここに入れないと揺れが上書きされる）
     const camOffset = new THREE.Vector3(0, 5, 8);
     const target = player.position.clone().add(camOffset);
     camera.position.lerp(target, 0.1);
-    camera.position.x += shakeX;
-    camera.position.y += shakeY;
+    camera.position.x += shakeX; camera.position.y += shakeY;
     camera.lookAt(player.position);
-
     if (isSpinning) model.rotation.y += 20 * delta;
-    if (isGrounded) {
-      if (isMoving) { fadeToAction('Run', 0.2); if (activeAction) activeAction.setEffectiveTimeScale(0.7); }
-      else fadeToAction('Idle', 0.2);
-    } else fadeToAction('Jump', 0.1);
+    if (isGrounded) { if (isMoving) { fadeToAction('Run', 0.2); if (activeAction) activeAction.setEffectiveTimeScale(0.7); } else fadeToAction('Idle', 0.2); } else fadeToAction('Jump', 0.1);
   }
 }
 
