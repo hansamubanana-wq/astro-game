@@ -20,7 +20,7 @@ let runDustTimer = 0;
 let dashTimer = 0;      
 let dashCooldown = 0;   
 
-// ★射撃用変数
+// 射撃用変数
 let lastShotTime = 0;
 interface Bullet {
   mesh: THREE.Mesh;
@@ -51,7 +51,7 @@ class SoundManager {
     osc.connect(gain); gain.connect(this.ctx.destination);
     const now=this.ctx.currentTime;
 
-    if (type === 'shoot') { // ★銃の音
+    if (type === 'shoot') { 
       osc.type = 'square';
       osc.frequency.setValueAtTime(800, now);
       osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
@@ -99,11 +99,11 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
-// ★Bloom（光量）の調整
+// Bloom設定（光量調整済み）
 const renderScene = new RenderPass(scene, camera);
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-bloomPass.threshold = 0.5; // ★以前より上げました（すごく明るいものだけ光る）
-bloomPass.strength = 0.3;  // ★以前より下げました（眩しすぎないように）
+bloomPass.threshold = 0.5; 
+bloomPass.strength = 0.3;  
 bloomPass.radius = 0.5;
 const composer = new EffectComposer(renderer);
 composer.addPass(renderScene);
@@ -183,7 +183,6 @@ let enemyResource: any = null;
 function clearStage() {
   staticPlatforms.forEach(p=>scene.remove(p)); movingPlatforms.forEach(p=>scene.remove(p.mesh));
   enemies.forEach(e=>scene.remove(e.mesh)); coins.forEach(c=>scene.remove(c)); particles.forEach(p=>scene.remove(p.mesh));
-  // 弾丸クリア
   bullets.forEach(b=>scene.remove(b.mesh)); bullets = [];
   
   if (goalObj) scene.remove(goalObj);
@@ -209,7 +208,6 @@ function spawnEnemy(x:number,y:number,z:number,type:'patrol'|'chaser'|'boss',axi
   if(type==='boss') mesh.scale.set(1.2,1.2,1.2); else mesh.scale.set(0.4,0.4,0.4);
   mesh.traverse((c:any)=>{if(c.isMesh)c.castShadow=true;}); scene.add(mesh);
   
-  // 敵の発光（少し控えめに）
   mesh.traverse((child: any) => {
     if (child.isMesh && child.material) {
       child.material = child.material.clone();
@@ -224,7 +222,7 @@ function spawnEnemy(x:number,y:number,z:number,type:'patrol'|'chaser'|'boss',axi
   
   enemies.push({
     mesh, mixer, type, speed, dead:false, deadTimer:0, velocityY:0, patrolAxis:axis, patrolDir:1, basePos:new THREE.Vector3(x,y,z),
-    hp:5, maxHp:5, bossState:'wait', stateTimer:0 // ボスHP増加（遠距離で倒しやすいため）
+    hp:5, maxHp:5, bossState:'wait', stateTimer:0 
   });
   if(type==='boss') updateBossUI(5,5);
 }
@@ -234,7 +232,6 @@ function createBoss(x:number,y:number,z:number){spawnEnemy(x,y,z,'boss',undefine
 
 function createCoin(x:number,y:number,z:number){
   const geo=new THREE.CylinderGeometry(0.3,0.3,0.05,16); 
-  // コインの発光も調整
   const mat=new THREE.MeshStandardMaterial({color:0xffd700, emissive:0xffd700, emissiveIntensity: 0.4, metalness: 0.8, roughness: 0.2});
   const mesh=new THREE.Mesh(geo,mat); mesh.position.set(x,y,z); mesh.rotation.z=Math.PI/2; mesh.castShadow=true;
   scene.add(mesh); coins.push(mesh);
@@ -423,29 +420,25 @@ window.addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
 });
 
-// ★射撃処理（連射制限あり）
+// ★射撃処理
 function shoot() {
   if (!isGameActive || isCinematic || isDashing) return;
   const now = performance.now();
-  if (now - lastShotTime < 200) return; // 0.2秒間隔
+  if (now - lastShotTime < 200) return; // 連射速度
   lastShotTime = now;
 
-  // 弾丸生成
   const bulletGeo = new THREE.CapsuleGeometry(0.1, 0.5, 4, 8);
-  const bulletMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 発光はBloomで
+  const bulletMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); 
   const bullet = new THREE.Mesh(bulletGeo, bulletMat);
   
-  // プレイヤーの位置と向きに合わせる
-  bullet.position.copy(player.position).add(new THREE.Vector3(0, 0.8, 0)); // 胸の高さ
+  bullet.position.copy(player.position).add(new THREE.Vector3(0, 0.8, 0));
   
-  // 進行方向（プレイヤーの向き）
-  const direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
-  
-  // 弾丸の向きも合わせる（寝かせて、進行方向へ）
-  bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction); // CapsuleはY軸長なのでZへ向ける
+  // ★重要：弾の方向修正
+  const direction = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
+  bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction); 
   
   scene.add(bullet);
-  bullets.push({ mesh: bullet, velocity: direction.multiplyScalar(20), life: 2.0 }); // 2秒で消える
+  bullets.push({ mesh: bullet, velocity: direction.multiplyScalar(20), life: 2.0 });
   
   sfx.play('shoot');
 }
@@ -534,7 +527,6 @@ function update(time: number, delta: number) {
     if (shakeIntensity < 0.01) shakeIntensity = 0;
   }
 
-  // パーティクル
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= delta;
@@ -544,36 +536,30 @@ function update(time: number, delta: number) {
     (p.mesh.material as THREE.Material).opacity = p.life / p.maxLife;
   }
 
-  // ★弾丸処理
+  // 弾丸処理
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.life -= delta;
-    // 移動
-    b.mesh.position.add(b.velocity.clone().multiplyScalar(timeScale * 0.016)); // timeScale調整
+    b.mesh.position.add(b.velocity.clone().multiplyScalar(timeScale * 0.016));
 
-    // 寿命か遠すぎたら消す
     if (b.life <= 0 || b.mesh.position.distanceTo(player.position) > 50) {
       scene.remove(b.mesh);
       bullets.splice(i, 1);
       continue;
     }
 
-    // 敵との衝突判定
     let hit = false;
     for (let j = enemies.length - 1; j >= 0; j--) {
       const enemy = enemies[j];
       if (enemy.dead) continue;
       
-      // 当たり判定 (ボスの場合は大きめ)
       const hitRadius = enemy.type === 'boss' ? 2.5 : 1.0;
       if (b.mesh.position.distanceTo(enemy.mesh.position) < hitRadius) {
-        // ヒット！
         scene.remove(b.mesh);
         bullets.splice(i, 1);
         hit = true;
 
         if (enemy.type === 'boss') {
-          // ボスはStun中のみダメージ
           if (enemy.bossState === 'stun') {
              enemy.hp = (enemy.hp || 0) - 1; updateBossUI(enemy.hp, enemy.maxHp || 5);
              spawnParticles(b.mesh.position, 10, 'explosion'); sfx.play('explosion');
@@ -581,16 +567,14 @@ function update(time: number, delta: number) {
              enemy.bossState = 'chase'; enemy.stateTimer = -2;
              if (enemy.hp <= 0) { enemy.dead = true; sfx.play('explosion'); }
           } else {
-             // 無効エフェクト（小さい火花）
-             spawnParticles(b.mesh.position, 3, 'dust');
+             spawnParticles(b.mesh.position, 3, 'dust'); // 無効
           }
         } else {
-          // 雑魚は即死
           enemy.dead = true;
           spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 15, 'explosion');
           sfx.play('explosion'); addShake(0.3); hitStopTimer = 0.05;
         }
-        break; // 1発で1体
+        break;
       }
     }
     if (hit) continue;
@@ -681,7 +665,7 @@ function update(time: number, delta: number) {
           if (enemyGrounded && enemy.stateTimer > 0.5) {
              enemy.bossState = 'attack'; enemy.stateTimer = 0;
              spawnParticles(enemy.mesh.position, 20, 'shockwave'); addShake(1.0); vibrate(200); sfx.play('boss_land');
-             if (isGrounded && !isDashing) gameOver(); // ★ダッシュ中は無敵
+             if (isGrounded && !isDashing) gameOver(); 
           }
         } else if (enemy.bossState === 'attack') {
           if (enemy.stateTimer > 1.0) {
@@ -695,17 +679,30 @@ function update(time: number, delta: number) {
       }
     }
 
-    // プレイヤー接触（ダメージ判定）
-    const hDist = Math.sqrt((player.position.x-enemy.mesh.position.x)**2 + (player.position.z-enemy.mesh.position.z)**2);
+    const dx = player.position.x - enemy.mesh.position.x;
+    const dz = player.position.z - enemy.mesh.position.z;
+    const hDist = Math.sqrt(dx*dx + dz*dz);
+    const vDist = Math.abs(player.position.y - enemy.mesh.position.y);
     const hitRadius = enemy.type === 'boss' ? 2.5 : 1.0;
 
-    if (hDist < hitRadius && Math.abs(player.position.y - enemy.mesh.position.y) < 2.5) {
-      if (!isDashing && !enemy.dead) { // ★ダッシュ中、または敵が死んでれば無効
-        if (enemy.type === 'boss') { 
-          if (enemy.bossState !== 'stun') { addShake(0.8); vibrate(500); gameOver(); } 
-        } else { 
-          addShake(0.8); vibrate(500); gameOver(); 
+    if (hDist < hitRadius && vDist < 2.5) {
+      if (isDashing && !enemy.dead) { // ダッシュアタック
+        if (enemy.type === 'boss') {
+          if (enemy.bossState === 'stun') {
+             enemy.hp = (enemy.hp || 0) - 1; updateBossUI(enemy.hp, enemy.maxHp || 5);
+             spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,2,0)), 15, 'explosion'); sfx.play('explosion');
+             addShake(0.5); hitStopTimer = 0.1; playEnemyAction(enemy, 'No', 0.1);
+             enemy.bossState = 'chase'; enemy.stateTimer = -2;
+             if (enemy.hp <= 0) { enemy.dead = true; sfx.play('explosion'); }
+          }
+        } else {
+          enemy.dead = true;
+          spawnParticles(enemy.mesh.position.clone().add(new THREE.Vector3(0,1,0)), 15, 'explosion');
+          sfx.play('explosion'); addShake(0.3); hitStopTimer = 0.05;
         }
+      } else {
+        if (enemy.type === 'boss') { if (enemy.bossState !== 'stun') { addShake(0.8); vibrate(500); gameOver(); } }
+        else { addShake(0.8); vibrate(500); gameOver(); }
       }
     }
   }
@@ -732,7 +729,8 @@ function update(time: number, delta: number) {
       if (runDustTimer > 0.2) { spawnParticles(player.position.clone().add(new THREE.Vector3(0, -0.4, 0)), 1, 'dust'); runDustTimer = 0; }
     }
   } else if (isDashing) {
-    const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
+    // ダッシュ（入力なしでも直進）
+    const dir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
     player.position.add(dir.multiplyScalar(moveSpeed * timeScale));
   }
   
