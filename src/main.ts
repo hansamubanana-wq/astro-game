@@ -56,17 +56,16 @@ interface MovingPlatform {
   speed: number;
   offset: number;
 }
-// ★敵にも物理演算（重力）を追加
+
 interface Enemy {
   mesh: THREE.Mesh;
   type: 'patrol' | 'chaser'; 
-  basePos: THREE.Vector3;
-  axis?: 'x' | 'z'; 
-  range?: number;   
   speed: number;
-  offset?: number;
   dead: boolean;
-  velocityY: number; // 敵も重力を持つ
+  velocityY: number;
+  // パトロール用
+  patrolAxis?: 'x' | 'z'; 
+  patrolDir?: number; // 1 or -1
 }
 
 let movingPlatforms: MovingPlatform[] = [];
@@ -117,16 +116,26 @@ function createMovingPlatform(x: number, y: number, z: number, w: number, h: num
   movingPlatforms.push({ mesh, basePos: new THREE.Vector3(x, y - h/2, z), axis, range, speed, offset: 0 });
 }
 
-function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', range: number, speed: number) {
+// パトロール敵（赤）：崖で折り返す
+function createPatrolEnemy(x: number, y: number, z: number, axis: 'x'|'z', speed: number) {
   const geo = new THREE.IcosahedronGeometry(0.4, 0); 
   const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0x330000 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  enemies.push({ mesh, type: 'patrol', basePos: new THREE.Vector3(x, y, z), axis, range, speed, offset: Math.random() * 6, dead: false, velocityY: 0 });
+  enemies.push({ 
+    mesh, 
+    type: 'patrol', 
+    speed, 
+    dead: false, 
+    velocityY: 0,
+    patrolAxis: axis,
+    patrolDir: 1 // 最初はプラス方向に進む
+  });
 }
 
+// 追跡敵（紫）：崖の手前で止まる
 function createChaserEnemy(x: number, y: number, z: number, speed: number) {
   const geo = new THREE.ConeGeometry(0.3, 0.6, 8); 
   const mat = new THREE.MeshStandardMaterial({ color: 0xaa00ff, roughness: 0.3, emissive: 0x220044 });
@@ -134,7 +143,7 @@ function createChaserEnemy(x: number, y: number, z: number, speed: number) {
   mesh.position.set(x, y + 0.3, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  enemies.push({ mesh, type: 'chaser', basePos: new THREE.Vector3(x, y, z), speed, dead: false, velocityY: 0 });
+  enemies.push({ mesh, type: 'chaser', speed, dead: false, velocityY: 0 });
 }
 
 function createCoin(x: number, y: number, z: number) {
@@ -166,45 +175,54 @@ function loadLevel(level: number) {
   velocityY = 0;
   
   if (level === 1) {
-    showStory("【WORLD 1: はじまりの広場】<br>コイン判定を強化したぞ。<br>ジャンプして飛び越えても取れるはずだ！");
+    showStory("【WORLD 1: はじまりの広場】<br>敵が賢くなったぞ。<br>勝手に落ちたりしなくなったようだ！");
     createPlatform(0, 0, 0, 10, 2, 10, 'stone');
     createPlatform(0, 0, -15, 8, 2, 8, 'wood');
     createChaserEnemy(0, 1.5, -15, 2.0); 
+    
     createPlatform(12, 1, 0, 6, 2, 6, 'wood');
     createCoin(12, 2.5, 0);
     createCoin(14, 2.5, 0);
     createCoin(10, 2.5, 0);
     createMovingPlatform(6, 0.5, 0, 3, 0.5, 3, 'x', 2, 1);
+    
     createPlatform(-12, 1, -5, 6, 2, 10, 'stone');
-    createPatrolEnemy(-12, 2.4, -5, 'z', 3, 2);
+    createPatrolEnemy(-12, 2.4, -5, 'z', 2.0);
     createCoin(-12, 2.5, -9);
+    
     createMovingPlatform(0, 2, -25, 4, 0.5, 4, 'z', 3, 1.5);
     createPlatform(0, 3, -35, 8, 2, 8, 'stone');
     createGoal(0, 4.5, -35);
   
   } else if (level === 2) {
-    showStory("【WORLD 2: スカイ・アスレチック】<br>敵を穴に落とすことができる。<br>スピンで弾き飛ばせ！");
+    showStory("【WORLD 2: スカイ・アスレチック】<br>敵を落とすには、スピン攻撃が必要だ。<br>穴へ弾き飛ばせ！");
     createPlatform(0, 0, 0, 6, 2, 6, 'stone');
+    
     createPlatform(8, 1, -8, 5, 1, 5, 'wood');
     createChaserEnemy(8, 1.5, -8, 2.5); 
     createCoin(8, 2.5, -8);
+    
     createPlatform(-8, 1, -8, 5, 1, 5, 'wood');
-    createPatrolEnemy(-8, 1.9, -8, 'x', 2, 2);
+    createPatrolEnemy(-8, 1.9, -8, 'x', 2.0);
     createCoin(-8, 2.5, -8);
+    
     createPlatform(0, 2, -16, 10, 1, 6, 'stone');
     createChaserEnemy(-3, 2.5, -16, 2.0);
     createChaserEnemy(3, 2.5, -16, 2.0); 
+    
     createMovingPlatform(0, 2, -24, 3, 0.5, 3, 'y', 3, 1); 
+    
     createPlatform(0, 6, -32, 12, 2, 12, 'stone'); 
-    createPatrolEnemy(0, 7.4, -32, 'x', 4, 3);
-    createPatrolEnemy(0, 7.4, -32, 'z', 4, 3); 
+    createPatrolEnemy(0, 7.4, -32, 'x', 3.0);
+    createPatrolEnemy(0, 7.4, -32, 'z', 3.0); 
+    
     createCoin(0, 8, -32);
     createCoin(4, 8, -32);
     createCoin(-4, 8, -32);
     createGoal(0, 7.5, -40); 
   
   } else if (level === 3) {
-    showStory("【FINAL WORLD: 追跡者の巣窟】<br>このゲームの集大成だ。<br>すべてのテクニックを駆使せよ！");
+    showStory("【FINAL WORLD: 追跡者の巣窟】<br>奴らは落ちない。しつこく追ってくる。<br>生き残れ！");
     createPlatform(0, 0, 0, 8, 2, 8, 'stone');
     createPlatform(0, 1, -10, 4, 1, 4, 'wood');
     createChaserEnemy(0, 1.5, -10, 3.0); 
@@ -216,7 +234,7 @@ function loadLevel(level: number) {
     createChaserEnemy(-5, 6.5, -35, 2.5);
     createChaserEnemy(5, 6.5, -35, 2.5);
     createChaserEnemy(0, 6.5, -40, 2.5);
-    createPatrolEnemy(0, 6.4, -35, 'x', 6, 5); 
+    createPatrolEnemy(0, 6.4, -35, 'x', 5.0); 
     createCoin(0, 7, -35);
     createCoin(3, 7, -35);
     createCoin(-3, 7, -35);
@@ -234,17 +252,15 @@ const playerMaterial = new THREE.MeshBasicMaterial({ visible: false });
 const player = new THREE.Mesh(playerGeometry, playerMaterial);
 scene.add(player);
 
-// ★スピン攻撃のエフェクト（青い竜巻）
 const spinEffectGeo = new THREE.CylinderGeometry(1, 0.1, 1.5, 16, 2, true);
 const spinEffectMat = new THREE.MeshBasicMaterial({ 
   color: 0x00ffff, 
   transparent: true, 
-  opacity: 0.0, // 最初は見えない
+  opacity: 0.0, 
   side: THREE.DoubleSide,
   blending: THREE.AdditiveBlending 
 });
 const spinMesh = new THREE.Mesh(spinEffectGeo, spinEffectMat);
-// プレイヤーに追従させるため子要素にするのではなく、座標同期させる（モデル構造の都合）
 scene.add(spinMesh);
 
 let model: THREE.Group | undefined;
@@ -318,7 +334,6 @@ retryBtn.addEventListener('click', () => {
   }
 });
 
-// --- 入力 ---
 const input = { x: 0, z: 0 };
 const keys: { [key: string]: boolean } = { w: false, a: false, s: false, d: false };
 let jumpPressed = false;
@@ -337,11 +352,10 @@ window.addEventListener('keyup', (e) => {
 function attack(pressed: boolean) {
   if (pressed && !isSpinning) {
     isSpinning = true;
-    // エフェクト表示
     spinEffectMat.opacity = 0.6;
     setTimeout(() => { 
       isSpinning = false;
-      spinEffectMat.opacity = 0.0; // 非表示
+      spinEffectMat.opacity = 0.0; 
     }, 500);
   }
 }
@@ -376,6 +390,27 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// --- 便利関数：ある位置に地面があるかチェック ---
+function isSafePosition(x: number, z: number): boolean {
+  for (const p of staticPlatforms) {
+    const w = p.geometry.parameters.width;
+    const d = p.geometry.parameters.depth;
+    if (x >= p.position.x - w/2 && x <= p.position.x + w/2 &&
+        z >= p.position.z - d/2 && z <= p.position.z + d/2) {
+      return true;
+    }
+  }
+  for (const mp of movingPlatforms) {
+    const w = mp.mesh.geometry.parameters.width;
+    const d = mp.mesh.geometry.parameters.depth;
+    if (x >= mp.mesh.position.x - w/2 && x <= mp.mesh.position.x + w/2 &&
+        z >= mp.mesh.position.z - d/2 && z <= mp.mesh.position.z + d/2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // --- ゲームループ ---
 const speed = 0.15;
 const gravity = 0.015;
@@ -393,20 +428,13 @@ function update(time: number, delta: number) {
     goalObj.rotation.x += 0.01 * timeScale;
   }
 
-  // ★コイン判定の強化：円柱判定に変更
   for (let i = coins.length - 1; i >= 0; i--) {
     const c = coins[i];
     c.rotation.y += 0.05 * timeScale;
-    
-    // 水平距離を計算
     const dx = player.position.x - c.position.x;
     const dz = player.position.z - c.position.z;
     const hDist = Math.sqrt(dx*dx + dz*dz);
-    
-    // 垂直距離を計算
     const dy = Math.abs(player.position.y - c.position.y);
-
-    // 水平1.5m以内 かつ 垂直2.0m以内 なら取得（かなり広め）
     if (hDist < 1.5 && dy < 2.0) {
       scene.remove(c);
       coins.splice(i, 1);
@@ -422,103 +450,112 @@ function update(time: number, delta: number) {
     else mp.mesh.position.z = mp.basePos.z + move;
   });
 
-  // ★敵の処理：重力と接地判定を追加
+  // --- 敵の挙動 ---
   for (let i = enemies.length - 1; i >= 0; i--) {
     const enemy = enemies[i];
-    if (enemy.dead) {
-      // 弾き飛ばされ中の処理
-      enemy.velocityY -= gravity * timeScale;
-      enemy.mesh.position.y += enemy.velocityY * timeScale;
-      // 奈落まで落ちたら削除
-      if (enemy.mesh.position.y < -20) {
-        scene.remove(enemy.mesh);
-        enemies.splice(i, 1);
-      }
-      continue;
-    }
-
-    // 地面にいるか判定
+    
+    // ■ 重力処理
     let enemyGrounded = false;
     let groundY = -999;
     
-    // 敵は静止床だけ判定（軽量化のため）
+    // 静止床チェック
     for (const p of staticPlatforms) {
       if (checkOnPlatform(enemy.mesh, p)) {
         const top = p.position.y + p.geometry.parameters.height/2;
         if (top > groundY) groundY = top;
       }
     }
+    // 動く床チェック
+    for (const mp of movingPlatforms) {
+      if (checkOnPlatform(enemy.mesh, mp.mesh)) {
+        const top = mp.mesh.position.y + mp.mesh.geometry.parameters.height/2;
+        if (top > groundY) groundY = top;
+      }
+    }
+
+    const enemyOffset = enemy.type === 'chaser' ? 0.3 : 0.4;
     
-    // 接地処理
-    const eBottom = enemy.mesh.position.y; // 敵の原点は中心なので修正が必要だが、Cone/Icoで中心が異なる。
-    // create系関数でy位置調整済みなので、ここでは単純に足元=position.y - height/2 程度とみなして計算
-    // 簡易的に position.y そのものをチェック（埋まり防止）
-    
-    // Cone: height 0.6, origin center? No, standard geometry origin is center. 
-    // createChaserで y+0.3 してるので、中心は浮いてる。足元は position.y - 0.3
-    // Ico: radius 0.4. 足元 position.y - 0.4
-    
-    const offset = enemy.type === 'chaser' ? 0.3 : 0.4;
-    
-    if (enemy.mesh.position.y - offset <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
-      enemy.mesh.position.y = groundY + offset;
+    if (enemy.mesh.position.y - enemyOffset <= groundY + 0.1 && enemy.velocityY <= 0 && groundY > -100) {
+      enemy.mesh.position.y = groundY + enemyOffset;
       enemy.velocityY = 0;
       enemyGrounded = true;
     } else {
       enemyGrounded = false;
-    }
-
-    // 重力
-    if (!enemyGrounded) {
       enemy.velocityY -= gravity * timeScale;
       enemy.mesh.position.y += enemy.velocityY * timeScale;
     }
 
-    // AI移動（接地している時だけ動ける）
+    // 死亡して落下中ならここまで
+    if (enemy.dead) {
+       // 奈落へ落ちたら削除
+       if (enemy.mesh.position.y < -30) {
+         scene.remove(enemy.mesh);
+         enemies.splice(i, 1);
+       }
+       continue;
+    }
+
+    // ■ 移動AI (接地中のみ)
     if (enemyGrounded) {
       if (enemy.type === 'patrol') {
-        const move = Math.sin(time * enemy.speed + (enemy.offset || 0)) * (enemy.range || 0);
-        const oldPos = enemy.mesh.position.clone();
-        if (enemy.axis === 'x') enemy.mesh.position.x = enemy.basePos.x + move;
-        else enemy.mesh.position.z = enemy.basePos.z + move;
-        enemy.mesh.rotation.y += 0.05 * timeScale;
+        // 進行方向を決める
+        const moveDist = enemy.speed * 0.03 * timeScale;
+        const dir = enemy.patrolDir || 1;
         
-        // 穴チェック：移動先が穴なら戻す（落ちないようにするなら）
-        // 今回は「プレイヤーが突き落とせる」ようにしたいので、穴チェックせずそのまま落とす！
+        // 次の地点を予測
+        let nextX = enemy.mesh.position.x;
+        let nextZ = enemy.mesh.position.z;
+        if (enemy.patrolAxis === 'x') nextX += moveDist * dir;
+        else nextZ += moveDist * dir;
+
+        // ★崖チェック：次の一歩が安全か？
+        if (isSafePosition(nextX, nextZ)) {
+          // 安全なら進む
+          enemy.mesh.position.x = nextX;
+          enemy.mesh.position.z = nextZ;
+          enemy.mesh.rotation.y += 0.05 * timeScale;
+        } else {
+          // 危険なら引き返す
+          enemy.patrolDir = dir * -1;
+        }
+
       } else if (enemy.type === 'chaser') {
         const dist = player.position.distanceTo(enemy.mesh.position);
         if (dist < 15 && dist > 0.5) {
           const direction = new THREE.Vector3().subVectors(player.position, enemy.mesh.position).normalize();
-          // Y軸成分は消す（空を飛ばないように）
           direction.y = 0; 
           direction.normalize();
           
-          enemy.mesh.position.add(direction.multiplyScalar(enemy.speed * 0.03 * timeScale));
+          const moveStep = direction.multiplyScalar(enemy.speed * 0.03 * timeScale);
+          const nextPos = enemy.mesh.position.clone().add(moveStep);
+          
+          // ★崖チェック
+          if (isSafePosition(nextPos.x, nextPos.z)) {
+            enemy.mesh.position.add(moveStep);
+          }
+          // 崖なら動かない（踏みとどまる）
+          
           enemy.mesh.lookAt(new THREE.Vector3(player.position.x, enemy.mesh.position.y, player.position.z));
         }
       }
     }
 
     // 衝突判定
-    // 敵の高さを考慮した距離判定
     const dx = player.position.x - enemy.mesh.position.x;
     const dz = player.position.z - enemy.mesh.position.z;
     const hDist = Math.sqrt(dx*dx + dz*dz);
+    const vDist = Math.abs(player.position.y - enemy.mesh.position.y);
     
-    if (hDist < 1.0 && Math.abs(player.position.y - enemy.mesh.position.y) < 1.5) {
+    if (hDist < 1.0 && vDist < 1.5) {
       if (isSpinning) {
-        // 敵を倒す（ぶっ飛ばす）
+        // 攻撃ヒット！吹き飛ばす
         enemy.dead = true;
-        enemy.velocityY = 0.5; // 上に跳ね上がる
-        // プレイヤーの反対側へ吹き飛ばす
+        enemy.velocityY = 0.5; // 上に跳ねる
+        
+        // プレイヤーの反対側へ少し飛ばす
         const blowDir = new THREE.Vector3().subVectors(enemy.mesh.position, player.position).normalize();
-        
-        // 吹き飛びアニメーション用ループを作るのは大変なので、毎フレーム position.add する簡易物理へ移行
-        // ここでは初速を与える（が、enemy構造体にvelocityXがないので、
-        // 簡易的に「死んだらその場で落下」にするか、
-        // あるいは一瞬で遠くへ飛ばす）
-        
-        // 今回は「上に跳ねて、そのまま重力で落ちていく」処理にする（deadフラグで制御中）
+        blowDir.y = 0;
+        enemy.mesh.position.add(blowDir.multiplyScalar(2)); // ドン！と後ろへ
         
       } else {
         gameOver();
@@ -526,6 +563,7 @@ function update(time: number, delta: number) {
     }
   }
 
+  // プレイヤー移動
   let moveX = 0, moveZ = 0;
   if (keys['w']) moveZ -= 1; if (keys['s']) moveZ += 1;
   if (keys['a']) moveX -= 1; if (keys['d']) moveX += 1;
@@ -542,6 +580,7 @@ function update(time: number, delta: number) {
     player.rotation.y = Math.atan2(input.x, input.z) + Math.PI;
   }
   
+  // 接地判定
   let groundY = -999;
   let onMovingPlatform: MovingPlatform | null = null;
 
@@ -591,13 +630,12 @@ function update(time: number, delta: number) {
   if (player.position.y < -10) gameOver();
   if (goalObj && player.position.distanceTo(goalPosition) < 1.5) gameClear();
 
-  // スピンエフェクト同期
+  // エフェクト
   if (isSpinning) {
     spinMesh.position.copy(player.position);
     spinMesh.rotation.y += 0.5 * timeScale;
   } else {
-    // 隠すために遠くへ飛ばすか、opacity 0にする（実装済み）
-    spinMesh.position.copy(player.position); // 位置だけ合わせとく
+    spinMesh.position.copy(player.position);
   }
 
   if (model) {
