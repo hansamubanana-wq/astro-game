@@ -1,7 +1,6 @@
 :root {
   font-family: 'Arial Black', Impact, sans-serif;
   line-height: 1.5;
-  font-weight: 400;
 }
 
 body {
@@ -29,28 +28,67 @@ canvas {
   width: 100%;
   height: 100%;
   z-index: 10;
-  pointer-events: none; /* 基本はタッチ無視 */
+  pointer-events: none;
 }
 
-/* ★修正ポイント：画面の左半分をジョイスティック専用エリアとして定義 */
 #joystick-zone {
   position: absolute;
   top: 0;
   left: 0;
-  width: 50%; /* 画面の左半分 */
+  width: 50%;
   height: 100%;
-  pointer-events: auto; /* ここだけタッチ有効 */
-  /* ジョイスティックはこの中に生成されます */
+  pointer-events: auto;
 }
 
-/* メッセージコンテナ */
+/* ストーリーウィンドウ */
+#story-box {
+  position: absolute;
+  bottom: 20px;
+  left: 5%;
+  width: 90%;
+  height: 120px;
+  background-color: rgba(0, 0, 0, 0.85);
+  border: 4px solid #fff;
+  border-radius: 10px;
+  padding: 15px;
+  box-sizing: border-box;
+  color: #fff;
+  font-family: sans-serif;
+  font-size: 16px;
+  z-index: 50;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+#story-text {
+  margin: 0;
+  line-height: 1.4;
+}
+
+#next-btn {
+  align-self: flex-end;
+  background: none;
+  border: 1px solid #fff;
+  color: #fff;
+  padding: 5px 15px;
+  cursor: pointer;
+  font-weight: bold;
+}
+#next-btn:active {
+  background-color: #fff;
+  color: #000;
+}
+
+/* 全画面メッセージ（クリア/ゲームオーバー） */
 #message-container {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.8);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -58,13 +96,12 @@ canvas {
   pointer-events: auto;
   color: #FFD700;
   text-shadow: 2px 2px 0 #000;
-  z-index: 30;
+  z-index: 100;
 }
 
-#message-text {
+#big-message {
   font-size: 48px;
   margin-bottom: 20px;
-  letter-spacing: 2px;
 }
 
 #retry-btn {
@@ -77,16 +114,12 @@ canvas {
   cursor: pointer;
   font-weight: bold;
 }
-#retry-btn:active {
-  transform: scale(0.95);
-  background-color: #ccc;
-}
 
 /* ジャンプボタン */
 #jump-btn {
   position: absolute;
-  bottom: 50px;
-  right: 50px;
+  bottom: 160px; /* ストーリー枠とかぶらないよう少し上に */
+  right: 30px;
   width: 80px;
   height: 80px;
   border-radius: 50%;
@@ -95,12 +128,11 @@ canvas {
   color: white;
   font-weight: bold;
   font-size: 16px;
-  pointer-events: auto; /* ボタンはタッチ有効 */
+  pointer-events: auto;
   cursor: pointer;
   z-index: 20;
   touch-action: manipulation;
 }
-
 #jump-btn:active {
   background-color: rgba(255, 255, 255, 0.6);
   transform: scale(0.95);

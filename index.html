@@ -6,13 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>3D Action Game</title>
   </head>
-  <body>
+ <body>
     <div id="ui-layer">
       <div id="joystick-zone"></div>
 
+      <div id="story-box" style="display: none;">
+        <p id="story-text">ここにストーリーが表示されます...</p>
+        <button id="next-btn">▼</button>
+      </div>
+
       <div id="message-container" style="display: none;">
-        <h1 id="message-text">GAME CLEAR!</h1>
-        <button id="retry-btn">RETRY</button>
+        <h1 id="big-message">GAME CLEAR!</h1>
+        <button id="retry-btn">NEXT STAGE</button>
       </div>
 
       <button id="jump-btn">JUMP</button>
